@@ -1,0 +1,103 @@
+{
+  "name": "FoodStuff Store API",
+  "description": "WhatsApp bot-driven foodstuff marketplace API",
+  "repository": "https://github.com/yourusername/foodstuff-marketplace",
+  "logo": "https://via.placeholder.com/150x150/4CAF50/FFFFFF?text=FS",
+  "keywords": ["laravel", "php", "whatsapp", "marketplace", "api"],
+  "website": "https://foodstuff.store",
+  "env": {
+    "APP_NAME": {
+      "description": "Application name",
+      "value": "FoodStuff Store",
+      "required": true
+    },
+    "APP_ENV": {
+      "description": "Application environment",
+      "value": "production",
+      "required": true
+    },
+    "APP_KEY": {
+      "description": "Laravel application key",
+      "generator": "secret",
+      "required": true
+    },
+    "APP_DEBUG": {
+      "description": "Debug mode",
+      "value": "false",
+      "required": true
+    },
+    "APP_URL": {
+      "description": "Application URL",
+      "value": "https://your-app-name.herokuapp.com",
+      "required": true
+    },
+    "APP_FRONTEND_URL": {
+      "description": "Frontend URL",
+      "value": "https://foodstuff.store",
+      "required": true
+    },
+    "LOG_CHANNEL": {
+      "description": "Log channel",
+      "value": "stack",
+      "required": true
+    },
+    "DB_CONNECTION": {
+      "description": "Database connection",
+      "value": "postgresql",
+      "required": true
+    },
+    "CACHE_DRIVER": {
+      "description": "Cache driver",
+      "value": "file",
+      "required": true
+    },
+    "QUEUE_CONNECTION": {
+      "description": "Queue connection",
+      "value": "sync",
+      "required": true
+    },
+    "SESSION_DRIVER": {
+      "description": "Session driver",
+      "value": "file",
+      "required": true
+    },
+    "SESSION_LIFETIME": {
+      "description": "Session lifetime",
+      "value": "120",
+      "required": true
+    },
+    "TERMII_API_KEY": {
+      "description": "Termii API Key for WhatsApp",
+      "required": true
+    },
+    "TERMII_CHANNEL_ID": {
+      "description": "Termii WhatsApp Channel ID",
+      "required": true
+    },
+    "TERMII_SENDER_ID": {
+      "description": "Termii Sender ID",
+      "required": true
+    },
+    "PAYSTACK_SECRET_KEY": {
+      "description": "Paystack Secret Key",
+      "required": true
+    },
+    "PAYSTACK_PUBLIC_KEY": {
+      "description": "Paystack Public Key",
+      "required": true
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql:mini"
+    }
+  ],
+  "buildpacks": [
+    {
+      "url": "heroku/php"
+    }
+  ],
+  "scripts": {
+    "postdeploy": "php artisan migrate --force && php artisan db:seed --force"
+  }
+}
