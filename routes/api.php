@@ -61,23 +61,44 @@ Route::prefix('v1')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard']);
 
         // Market management
-        Route::apiResource('markets', AdminController::class);
+        Route::get('/markets', [AdminController::class, 'getMarkets']);
+        Route::post('/markets', [AdminController::class, 'store']);
+        Route::get('/markets/{market}', [AdminController::class, 'show']);
+        Route::put('/markets/{market}', [AdminController::class, 'update']);
+        Route::delete('/markets/{market}', [AdminController::class, 'destroy']);
         Route::put('/markets/{market}/toggle-status', [AdminController::class, 'toggleMarketStatus']);
 
         // Agent management
-        Route::apiResource('agents', AdminController::class);
+        Route::get('/agents', [AdminController::class, 'getAgents']);
+        Route::post('/agents', [AdminController::class, 'createAgent']);
         Route::put('/agents/{agent}/suspend', [AdminController::class, 'suspendAgent']);
         Route::put('/agents/{agent}/activate', [AdminController::class, 'activateAgent']);
         Route::put('/agents/{agent}/reset-password', [AdminController::class, 'resetAgentPassword']);
+
+        // Product management
+        Route::get('/products', [AdminController::class, 'getProducts']);
+        Route::post('/products', [AdminController::class, 'createProduct']);
+        Route::get('/products/{product}', [AdminController::class, 'showProduct']);
+        Route::put('/products/{product}', [AdminController::class, 'updateProduct']);
+        Route::delete('/products/{product}', [AdminController::class, 'destroyProduct']);
+
+        // Category management
+        Route::get('/categories', [AdminController::class, 'getCategories']);
+        Route::post('/categories', [AdminController::class, 'createCategory']);
+        Route::get('/categories/{category}', [AdminController::class, 'showCategory']);
+        Route::put('/categories/{category}', [AdminController::class, 'updateCategory']);
+        Route::delete('/categories/{category}', [AdminController::class, 'destroyCategory']);
+
+        // Market Product management (Admin can manage products for any market)
+        Route::get('/market-products', [AdminController::class, 'getMarketProducts']);
+        Route::post('/market-products', [AdminController::class, 'createMarketProduct']);
+        Route::put('/market-products/{marketProduct}', [AdminController::class, 'updateMarketProduct']);
+        Route::delete('/market-products/{marketProduct}', [AdminController::class, 'destroyMarketProduct']);
 
         // Order management
         Route::get('/orders', [AdminController::class, 'getOrders']);
         Route::put('/orders/{order}/assign-agent', [AdminController::class, 'assignAgent']);
         Route::put('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
-
-        // Product management
-        Route::apiResource('products', AdminController::class);
-        Route::apiResource('categories', AdminController::class);
     });
 
     // Agent APIs (protected)

@@ -8,6 +8,7 @@ use App\Models\Agent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Category;
+use App\Models\MarketProduct;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -109,25 +110,9 @@ class AdminController extends Controller
         ], 201);
     }
 
-    public function index(): JsonResponse
+    public function getMarkets(): JsonResponse
     {
-        $markets = Market::withCount(['agents', 'orders'])
-            ->get()
-            ->map(function ($market) {
-                return [
-                    'id' => $market->id,
-                    'name' => $market->name,
-                    'address' => $market->address,
-                    'latitude' => $market->latitude,
-                    'longitude' => $market->longitude,
-                    'phone' => $market->phone,
-                    'email' => $market->email,
-                    'is_active' => $market->is_active,
-                    'agents_count' => $market->agents_count,
-                    'orders_count' => $market->orders_count,
-                    'created_at' => $market->created_at,
-                ];
-            });
+        $markets = Market::all();
 
         return response()->json([
             'success' => true,
@@ -137,8 +122,6 @@ class AdminController extends Controller
 
     public function show(Market $market): JsonResponse
     {
-        $market->load(['agents', 'orders']);
-
         return response()->json([
             'success' => true,
             'data' => $market,
@@ -181,8 +164,8 @@ class AdminController extends Controller
 
         return response()->json([
             'success' => true,
+            'message' => 'Market status updated successfully',
             'data' => [
-                'id' => $market->id,
                 'is_active' => $market->is_active,
             ],
         ]);
@@ -196,7 +179,7 @@ class AdminController extends Controller
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:agents,email',
-            'phone' => 'required|string|unique:agents,phone',
+            'phone' => 'required|string|max:20',
         ]);
 
         $password = strtolower($request->first_name); // Default password
@@ -284,6 +267,225 @@ class AdminController extends Controller
             'data' => [
                 'new_password' => $newPassword,
             ],
+        ]);
+    }
+
+    // Product Management
+    public function getProducts(): JsonResponse
+    {
+        $products = Product::with(['category'])
+            ->get()
+            ->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'description' => $product->description,
+                    'unit' => $product->unit,
+                    'category' => $product->category->name,
+                    'is_active' => $product->is_active,
+                    'created_at' => $product->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $products,
+        ]);
+    }
+
+    public function createProduct(Request $request): JsonResponse
+    {
+        $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'unit' => 'required|string|max:50',
+            'is_active' => 'boolean',
+        ]);
+
+        $product = Product::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $product->load('category'),
+        ], 201);
+    }
+
+    public function showProduct(Product $product): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $product->load('category'),
+        ]);
+    }
+
+    public function updateProduct(Request $request, Product $product): JsonResponse
+    {
+        $request->validate([
+            'category_id' => 'sometimes|required|exists:categories,id',
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'nullable|string',
+            'unit' => 'sometimes|required|string|max:50',
+            'is_active' => 'boolean',
+        ]);
+
+        $product->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $product->load('category'),
+        ]);
+    }
+
+    public function destroyProduct(Product $product): JsonResponse
+    {
+        $product->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product deleted successfully',
+        ]);
+    }
+
+    // Category Management
+    public function getCategories(): JsonResponse
+    {
+        $categories = Category::all();
+
+        return response()->json([
+            'success' => true,
+            'data' => $categories,
+        ]);
+    }
+
+    public function createCategory(Request $request): JsonResponse
+    {
+        $request->validate([
+            'name' => 'required|string|max:255|unique:categories,name',
+            'description' => 'nullable|string',
+        ]);
+
+        $category = Category::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $category,
+        ], 201);
+    }
+
+    public function showCategory(Category $category): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $category,
+        ]);
+    }
+
+    public function updateCategory(Request $request, Category $category): JsonResponse
+    {
+        $request->validate([
+            'name' => 'sometimes|required|string|max:255|unique:categories,name,' . $category->id,
+            'description' => 'nullable|string',
+        ]);
+
+        $category->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $category,
+        ]);
+    }
+
+    public function destroyCategory(Category $category): JsonResponse
+    {
+        $category->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Category deleted successfully',
+        ]);
+    }
+
+    // Market Product Management (Admin can add products to any market)
+    public function getMarketProducts(): JsonResponse
+    {
+        $marketProducts = MarketProduct::with(['market', 'product.category', 'agent'])
+            ->get()
+            ->map(function ($marketProduct) {
+                return [
+                    'id' => $marketProduct->id,
+                    'market' => $marketProduct->market->name,
+                    'product' => $marketProduct->product->name,
+                    'category' => $marketProduct->product->category->name,
+                    'agent' => $marketProduct->agent->full_name,
+                    'price' => $marketProduct->price,
+                    'stock_quantity' => $marketProduct->stock_quantity,
+                    'is_available' => $marketProduct->is_available,
+                    'created_at' => $marketProduct->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $marketProducts,
+        ]);
+    }
+
+    public function createMarketProduct(Request $request): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'required|exists:markets,id',
+            'product_id' => 'required|exists:products,id',
+            'agent_id' => 'required|exists:agents,id',
+            'price' => 'required|numeric|min:0',
+            'stock_quantity' => 'required|integer|min:0',
+            'is_available' => 'boolean',
+        ]);
+
+        // Check if product already exists for this market and agent
+        $existingProduct = MarketProduct::where('market_id', $request->market_id)
+            ->where('product_id', $request->product_id)
+            ->where('agent_id', $request->agent_id)
+            ->first();
+
+        if ($existingProduct) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product already exists for this market and agent',
+            ], 400);
+        }
+
+        $marketProduct = MarketProduct::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $marketProduct->load(['market', 'product.category', 'agent']),
+        ], 201);
+    }
+
+    public function updateMarketProduct(Request $request, MarketProduct $marketProduct): JsonResponse
+    {
+        $request->validate([
+            'price' => 'sometimes|required|numeric|min:0',
+            'stock_quantity' => 'sometimes|required|integer|min:0',
+            'is_available' => 'boolean',
+        ]);
+
+        $marketProduct->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $marketProduct->load(['market', 'product.category', 'agent']),
+        ]);
+    }
+
+    public function destroyMarketProduct(MarketProduct $marketProduct): JsonResponse
+    {
+        $marketProduct->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Market product deleted successfully',
         ]);
     }
 
