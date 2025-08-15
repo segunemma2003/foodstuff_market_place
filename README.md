@@ -417,3 +417,77 @@ This project is licensed under the MIT License.
 ## Support
 
 For support, email operations@foodstuff.store or create an issue in the repository.
+
+# FoodStuff Store WhatsApp Bot
+
+A WhatsApp bot for the FoodStuff Store marketplace that handles customer orders and communicates with the main Laravel API.
+
+## Features
+
+-   🤖 WhatsApp Web.js integration
+-   🔄 Auto-restart on disconnection
+-   📱 QR code authentication
+-   🔗 Laravel API communication
+-   🛒 Order management
+-   📊 Health monitoring
+
+## Quick Start
+
+### Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+### Heroku Deployment
+
+```bash
+# Deploy to Heroku
+git push heroku master
+
+# Check logs
+heroku logs --tail
+
+# Scale dyno
+heroku ps:scale web=1
+```
+
+## Environment Variables
+
+-   `NODE_ENV`: Node.js environment (production/development)
+-   `LARAVEL_API_URL`: URL of the main Laravel API
+
+## API Endpoints
+
+-   `GET /health`: Health check
+-   `GET /status`: Bot status
+-   `POST /send-message`: Send WhatsApp message
+
+## QR Code Authentication
+
+1. Start the bot
+2. Scan QR code with WhatsApp
+3. Bot will be ready for messages
+
+## Monitoring
+
+```bash
+# Check bot status
+curl https://your-app.herokuapp.com/health
+
+# View logs
+heroku logs --tail
+```
+
+## Architecture
+
+This bot runs separately from the main Laravel API and communicates via HTTP requests. It handles:
+
+-   WhatsApp message processing
+-   Session management
+-   Auto-restart on failures
+-   Communication with Laravel API

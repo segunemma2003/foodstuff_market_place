@@ -19,6 +19,78 @@ class OrderController extends Controller
         private PaymentService $paymentService
     ) {}
 
+    /**
+     * Search orders by order number
+     */
+    public function search(Request $request): JsonResponse
+    {
+        $request->validate([
+            'order_number' => 'required|string|max:255',
+        ]);
+
+        $order = Order::where('order_number', $request->order_number)
+            ->with(['market', 'agent'])
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'status' => $order->status,
+                'customer_name' => $order->customer_name,
+                'whatsapp_number' => $order->whatsapp_number,
+                'delivery_address' => $order->delivery_address,
+                'total_amount' => $order->total_amount,
+                'market' => $order->market ? [
+                    'id' => $order->market->id,
+                    'name' => $order->market->name,
+                    'address' => $order->market->address,
+                ] : null,
+                'agent' => $order->agent ? [
+                    'id' => $order->agent->id,
+                    'name' => $order->agent->full_name,
+                    'phone' => $order->agent->phone,
+                ] : null,
+                'created_at' => $order->created_at,
+            ],
+        ]);
+    }
+
+    /**
+     * Get just the items for an order
+     */
+    public function getItems(Order $order): JsonResponse
+    {
+        $items = $order->orderItems()->with('product')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $items->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'product_name' => $item->product_name,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'total_price' => $item->total_price,
+                    'product' => [
+                        'id' => $item->product->id,
+                        'name' => $item->product->name,
+                        'unit' => $item->product->unit,
+                        'description' => $item->product->description,
+                    ],
+                ];
+            }),
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $request->validate([
@@ -106,44 +178,45 @@ class OrderController extends Controller
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.product_name' => 'required|string|max:255',
         ]);
 
         try {
-            // Delete existing items
+            // Clear existing items
             $order->orderItems()->delete();
 
-            $subtotal = 0;
-
             // Add new items
+            $subtotal = 0;
             foreach ($request->items as $item) {
-                $totalPrice = $item['quantity'] * $item['unit_price'];
-                $subtotal += $totalPrice;
-
-                OrderItem::create([
-                    'order_id' => $order->id,
+                $orderItem = $order->orderItems()->create([
                     'product_id' => $item['product_id'],
-                    'market_product_id' => $item['market_product_id'] ?? null,
-                    'product_name' => $item['product_name'] ?? '',
-                    'unit_price' => $item['unit_price'],
+                    'product_name' => $item['product_name'],
                     'quantity' => $item['quantity'],
-                    'total_price' => $totalPrice,
+                    'unit_price' => $item['unit_price'],
+                    'total_price' => $item['quantity'] * $item['unit_price'],
                 ]);
+
+                $subtotal += $orderItem->total_price;
             }
 
-            $deliveryFee = $order->delivery_fee ?? 0;
+            // Update order totals
+            $deliveryFee = 500; // Fixed delivery fee
             $totalAmount = $subtotal + $deliveryFee;
 
             $order->update([
                 'subtotal' => $subtotal,
+                'delivery_fee' => $deliveryFee,
                 'total_amount' => $totalAmount,
             ]);
 
             return response()->json([
                 'success' => true,
                 'data' => [
+                    'order_id' => $order->id,
                     'subtotal' => $subtotal,
                     'delivery_fee' => $deliveryFee,
                     'total_amount' => $totalAmount,
+                    'items_count' => count($request->items),
                 ],
             ]);
         } catch (\Exception $e) {
@@ -157,32 +230,57 @@ class OrderController extends Controller
     public function checkout(Request $request, Order $order): JsonResponse
     {
         $request->validate([
-            'payment_method' => 'required|in:paystack',
+            'email' => 'required|email',
         ]);
 
         try {
-            // Initialize payment
+            // Initialize payment with Paystack
             $paymentData = $this->paymentService->initializePayment([
+                'order_id' => $order->id,
                 'amount' => $order->total_amount * 100, // Convert to kobo
-                'email' => $request->email ?? 'customer@example.com',
-                'reference' => $order->order_number,
+                'email' => $request->email,
+                'reference' => 'FS_' . $order->order_number,
                 'callback_url' => config('app.frontend_url') . '/payment/callback',
-                'metadata' => [
-                    'order_id' => $order->id,
-                    'order_number' => $order->order_number,
-                ],
-            ]);
-
-            $order->update([
-                'paystack_reference' => $paymentData['reference'],
             ]);
 
             return response()->json([
                 'success' => true,
                 'data' => [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'total_amount' => $order->total_amount,
                     'payment_url' => $paymentData['authorization_url'],
                     'reference' => $paymentData['reference'],
-                    'amount' => $order->total_amount,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 400);
+        }
+    }
+
+    /**
+     * Update order status
+     */
+    public function updateStatus(Request $request, Order $order): JsonResponse
+    {
+        $request->validate([
+            'status' => 'required|in:pending,confirmed,preparing,ready_for_delivery,out_for_delivery,delivered,cancelled',
+            'message' => 'nullable|string',
+        ]);
+
+        try {
+            $order->updateStatus($request->status, $request->message ?? '');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order status updated successfully',
+                'data' => [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                    'updated_at' => $order->updated_at,
                 ],
             ]);
         } catch (\Exception $e) {

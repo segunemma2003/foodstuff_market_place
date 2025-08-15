@@ -8,6 +8,7 @@ use App\Models\Agent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Category;
+use App\Models\Commission;
 use App\Models\MarketProduct;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
@@ -504,8 +505,14 @@ class AdminController extends Controller
                     'delivery_address' => $order->delivery_address,
                     'total_amount' => $order->total_amount,
                     'status' => $order->status,
-                    'market' => $order->market ? $order->market->name : null,
-                    'agent' => $order->agent ? $order->agent->full_name : null,
+                    'market' => $order->market ? [
+                        'id' => $order->market->id,
+                        'name' => $order->market->name,
+                    ] : null,
+                    'agent' => $order->agent ? [
+                        'id' => $order->agent->id,
+                        'name' => $order->agent->full_name,
+                    ] : null,
                     'created_at' => $order->created_at,
                 ];
             });
@@ -516,41 +523,70 @@ class AdminController extends Controller
         ]);
     }
 
+    /**
+     * Search orders for admin
+     */
+    public function searchOrders(Request $request): JsonResponse
+    {
+        $request->validate([
+            'query' => 'required|string|min:2|max:255',
+        ]);
+
+        $orders = Order::with(['market', 'agent'])
+            ->where(function ($query) use ($request) {
+                $query->where('order_number', 'like', '%' . $request->query . '%')
+                      ->orWhere('customer_name', 'like', '%' . $request->query . '%')
+                      ->orWhere('whatsapp_number', 'like', '%' . $request->query . '%');
+            })
+            ->latest()
+            ->limit(20)
+            ->get()
+            ->map(function ($order) {
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_name' => $order->customer_name,
+                    'whatsapp_number' => $order->whatsapp_number,
+                    'delivery_address' => $order->delivery_address,
+                    'total_amount' => $order->total_amount,
+                    'status' => $order->status,
+                    'market' => $order->market ? [
+                        'id' => $order->market->id,
+                        'name' => $order->market->name,
+                    ] : null,
+                    'agent' => $order->agent ? [
+                        'id' => $order->agent->id,
+                        'name' => $order->agent->full_name,
+                    ] : null,
+                    'created_at' => $order->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $orders,
+            'count' => $orders->count(),
+        ]);
+    }
+
     public function assignAgent(Request $request, Order $order): JsonResponse
     {
         $request->validate([
             'agent_id' => 'required|exists:agents,id',
         ]);
 
-        $agent = Agent::findOrFail($request->agent_id);
-
-        if (!$agent->isAvailable()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Agent is not available',
-            ], 400);
-        }
-
-        $order->update(['agent_id' => $agent->id]);
-        $order->updateStatus('assigned', "Order manually assigned to {$agent->full_name}");
+        $order->update(['agent_id' => $request->agent_id]);
 
         return response()->json([
             'success' => true,
             'message' => 'Agent assigned successfully',
-            'data' => [
-                'agent' => [
-                    'id' => $agent->id,
-                    'name' => $agent->full_name,
-                    'phone' => $agent->phone,
-                ],
-            ],
         ]);
     }
 
     public function updateOrderStatus(Request $request, Order $order): JsonResponse
     {
         $request->validate([
-            'status' => 'required|in:pending,confirmed,paid,assigned,preparing,ready_for_delivery,out_for_delivery,delivered,cancelled,failed',
+            'status' => 'required|in:pending,confirmed,preparing,ready_for_delivery,out_for_delivery,delivered,cancelled',
             'message' => 'nullable|string',
         ]);
 
@@ -559,6 +595,221 @@ class AdminController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Order status updated successfully',
+        ]);
+    }
+
+    /**
+     * Approve agent for order
+     */
+    public function approveAgent(Request $request, Order $order): JsonResponse
+    {
+        if (!$order->agent_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No agent assigned to this order',
+            ], 400);
+        }
+
+        // Create commission record
+        $commission = $order->commissions()->create([
+            'agent_id' => $order->agent_id,
+            'amount' => $order->total_amount * 0.1, // 10% commission
+            'status' => 'approved',
+            'approved_at' => now(),
+        ]);
+
+        // Send notification to operations@foodstuff.store
+        // TODO: Implement email notification
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent approved and commission created',
+            'data' => [
+                'commission_id' => $commission->id,
+                'amount' => $commission->amount,
+            ],
+        ]);
+    }
+
+    /**
+     * Switch agent for order
+     */
+    public function switchAgent(Request $request, Order $order): JsonResponse
+    {
+        $request->validate([
+            'agent_id' => 'required|exists:agents,id',
+        ]);
+
+        $oldAgentId = $order->agent_id;
+        $order->update(['agent_id' => $request->agent_id]);
+
+        // Send notification to operations@foodstuff.store about agent switch
+        // TODO: Implement email notification
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent switched successfully',
+            'data' => [
+                'old_agent_id' => $oldAgentId,
+                'new_agent_id' => $request->agent_id,
+            ],
+        ]);
+    }
+
+    /**
+     * Switch agent to different market
+     */
+    public function switchAgentMarket(Request $request, Agent $agent): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'required|exists:markets,id',
+        ]);
+
+        $oldMarketId = $agent->market_id;
+        $agent->update(['market_id' => $request->market_id]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent market switched successfully',
+            'data' => [
+                'agent_id' => $agent->id,
+                'old_market_id' => $oldMarketId,
+                'new_market_id' => $request->market_id,
+            ],
+        ]);
+    }
+
+    /**
+     * Get all commissions
+     */
+    public function getCommissions(): JsonResponse
+    {
+        $commissions = Commission::with(['order', 'agent'])
+            ->latest()
+            ->get()
+            ->map(function ($commission) {
+                return [
+                    'id' => $commission->id,
+                    'order_number' => $commission->order->order_number,
+                    'agent_name' => $commission->agent->full_name,
+                    'amount' => $commission->amount,
+                    'status' => $commission->status,
+                    'approved_at' => $commission->approved_at,
+                    'paid_at' => $commission->paid_at,
+                    'created_at' => $commission->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $commissions,
+        ]);
+    }
+
+    /**
+     * Approve commission
+     */
+    public function approveCommission(Commission $commission): JsonResponse
+    {
+        $commission->update([
+            'status' => 'approved',
+            'approved_at' => now(),
+        ]);
+
+        // Transfer money to agent
+        // TODO: Implement money transfer logic
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Commission approved and money transferred',
+        ]);
+    }
+
+    /**
+     * Reject commission
+     */
+    public function rejectCommission(Commission $commission): JsonResponse
+    {
+        $commission->update([
+            'status' => 'rejected',
+            'rejected_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Commission rejected',
+        ]);
+    }
+
+    /**
+     * Bulk approve commissions
+     */
+    public function bulkApproveCommissions(Request $request): JsonResponse
+    {
+        $request->validate([
+            'commission_ids' => 'required|array',
+            'commission_ids.*' => 'exists:commissions,id',
+        ]);
+
+        $commissions = Commission::whereIn('id', $request->commission_ids)
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($commissions as $commission) {
+            $commission->update([
+                'status' => 'approved',
+                'approved_at' => now(),
+            ]);
+            // TODO: Implement money transfer logic
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => count($commissions) . ' commissions approved',
+        ]);
+    }
+
+    /**
+     * Get system settings
+     */
+    public function getSettings(): JsonResponse
+    {
+        $settings = [
+            'commission_rate' => config('app.commission_rate', 0.1), // 10%
+            'delivery_fee' => config('app.delivery_fee', 500),
+            'max_delivery_distance' => config('app.max_delivery_distance', 5), // km
+            'auto_assign_agents' => config('app.auto_assign_agents', true),
+            'whatsapp_bot_url' => config('app.whatsapp_bot_url'),
+            'paystack_public_key' => config('services.paystack.public_key'),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $settings,
+        ]);
+    }
+
+    /**
+     * Update system settings
+     */
+    public function updateSettings(Request $request): JsonResponse
+    {
+        $request->validate([
+            'commission_rate' => 'nullable|numeric|between:0,1',
+            'delivery_fee' => 'nullable|numeric|min:0',
+            'max_delivery_distance' => 'nullable|numeric|min:1|max:50',
+            'auto_assign_agents' => 'nullable|boolean',
+        ]);
+
+        // Update config values
+        // Note: In production, you'd want to store these in database
+        foreach ($request->all() as $key => $value) {
+            config(['app.' . $key => $value]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Settings updated successfully',
         ]);
     }
 

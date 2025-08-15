@@ -28,17 +28,25 @@ Route::prefix('v1')->group(function () {
     Route::get('/whatsapp/status', [WhatsAppController::class, 'getStatus']);
     Route::post('/whatsapp/initialize', [WhatsAppController::class, 'initialize']);
 
-    // Market and Product APIs
-    Route::get('/markets/nearby', [MarketController::class, 'getNearbyMarkets']);
-    Route::get('/markets/{market}/products', [MarketController::class, 'getProducts']);
-    Route::get('/products/search', [ProductController::class, 'search']);
-    Route::get('/categories', [ProductController::class, 'getCategories']);
-
-    // Order APIs
+    // Order Search and Management APIs
+    Route::get('/orders/search', [OrderController::class, 'search']); // Search orders by order number
+    Route::get('/orders/{order}/items', [OrderController::class, 'getItems']); // Get just the items for an order
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::put('/orders/{order}/items', [OrderController::class, 'updateItems']);
     Route::post('/orders/{order}/checkout', [OrderController::class, 'checkout']);
+    Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+
+    // Autocomplete and Search APIs
+    Route::get('/products/autocomplete', [ProductController::class, 'autocomplete']); // Product autocomplete
+    Route::get('/markets/autocomplete', [MarketController::class, 'autocomplete']); // Market autocomplete
+    Route::get('/products/search', [ProductController::class, 'search']);
+    Route::get('/categories', [ProductController::class, 'getCategories']);
+
+    // Market and Proximity APIs
+    Route::get('/markets/nearby', [MarketController::class, 'getNearbyMarkets']);
+    Route::get('/markets/{market}/products', [MarketController::class, 'getProducts']);
+    Route::get('/markets/{market}/prices', [MarketController::class, 'getProductPrices']); // Get prices and measurements
 
     // Payment APIs
     Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
@@ -77,6 +85,7 @@ Route::prefix('v1')->group(function () {
         Route::put('/agents/{agent}/suspend', [AdminController::class, 'suspendAgent']);
         Route::put('/agents/{agent}/activate', [AdminController::class, 'activateAgent']);
         Route::put('/agents/{agent}/reset-password', [AdminController::class, 'resetAgentPassword']);
+        Route::put('/agents/{agent}/switch-market', [AdminController::class, 'switchAgentMarket']); // Switch agent to different market
 
         // Product management
         Route::get('/products', [AdminController::class, 'getProducts']);
@@ -100,14 +109,28 @@ Route::prefix('v1')->group(function () {
 
         // Order management
         Route::get('/orders', [AdminController::class, 'getOrders']);
+        Route::get('/orders/search', [AdminController::class, 'searchOrders']); // Admin order search
         Route::put('/orders/{order}/assign-agent', [AdminController::class, 'assignAgent']);
         Route::put('/orders/{order}/status', [AdminController::class, 'updateOrderStatus']);
+        Route::put('/orders/{order}/approve-agent', [AdminController::class, 'approveAgent']); // Approve agent for order
+        Route::put('/orders/{order}/switch-agent', [AdminController::class, 'switchAgent']); // Switch agent for order
+
+        // Commission and Payment management
+        Route::get('/commissions', [AdminController::class, 'getCommissions']);
+        Route::put('/commissions/{commission}/approve', [AdminController::class, 'approveCommission']);
+        Route::put('/commissions/{commission}/reject', [AdminController::class, 'rejectCommission']);
+        Route::post('/commissions/bulk-approve', [AdminController::class, 'bulkApproveCommissions']);
+
+        // System settings
+        Route::get('/settings', [AdminController::class, 'getSettings']);
+        Route::put('/settings', [AdminController::class, 'updateSettings']);
     });
 
     // Agent APIs (protected)
     Route::middleware(['auth:sanctum', 'agent'])->prefix('agent')->group(function () {
         Route::get('/dashboard', [AgentController::class, 'dashboard']);
         Route::get('/orders', [AgentController::class, 'getOrders']);
+        Route::get('/orders/search', [AgentController::class, 'searchOrders']); // Agent order search
         Route::put('/orders/{order}/status', [AgentController::class, 'updateOrderStatus']);
         Route::get('/earnings', [AgentController::class, 'getEarnings']);
 
@@ -121,10 +144,14 @@ Route::prefix('v1')->group(function () {
         Route::get('/profile', [AgentController::class, 'getProfile']);
         Route::put('/profile', [AgentController::class, 'updateProfile']);
         Route::put('/change-password', [AgentController::class, 'changePassword']);
+
+        // Commission tracking
+        Route::get('/commissions', [AgentController::class, 'getCommissions']);
+        Route::get('/commissions/pending', [AgentController::class, 'getPendingCommissions']);
+        Route::get('/commissions/paid', [AgentController::class, 'getPaidCommissions']);
     });
 
     // Authentication routes
     Route::post('/admin/login', [AdminController::class, 'login']);
     Route::post('/agent/login', [AgentController::class, 'login']);
-    Route::post('/logout', [AdminController::class, 'logout'])->middleware('auth:sanctum');
 });

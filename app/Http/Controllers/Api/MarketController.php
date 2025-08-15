@@ -51,11 +51,35 @@ class MarketController extends Controller
         ]);
     }
 
+    /**
+     * Market autocomplete search
+     */
+    public function autocomplete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'query' => 'required|string|min:2|max:100',
+        ]);
+
+        $markets = Market::where('is_active', true)
+            ->where(function ($query) use ($request) {
+                $query->where('name', 'like', '%' . $request->query . '%')
+                      ->orWhere('address', 'like', '%' . $request->query . '%');
+            })
+            ->limit(10)
+            ->get(['id', 'name', 'address', 'latitude', 'longitude']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $markets,
+            'count' => $markets->count(),
+        ]);
+    }
+
     public function getProducts(Request $request, Market $market): JsonResponse
     {
         $request->validate([
             'category_id' => 'nullable|exists:categories,id',
-            'search' => 'nullable|string|max:100',
+            'search' => 'nullable|string|max:255',
         ]);
 
         $query = MarketProduct::with(['product.category', 'agent'])
@@ -70,30 +94,80 @@ class MarketController extends Controller
 
         if ($request->search) {
             $query->whereHas('product', function ($q) use ($request) {
-                $q->where('name', 'like', "%{$request->search}%");
+                $q->where('name', 'like', '%' . $request->search . '%')
+                  ->orWhere('description', 'like', '%' . $request->search . '%');
             });
         }
 
-        $products = $query->get()->map(function ($marketProduct) {
-            return [
-                'id' => $marketProduct->id,
-                'product_id' => $marketProduct->product_id,
-                'name' => $marketProduct->product->name,
-                'description' => $marketProduct->product->description,
-                'image' => $marketProduct->product->image,
-                'unit' => $marketProduct->product->unit,
-                'price' => $marketProduct->price,
-                'stock_quantity' => $marketProduct->stock_quantity,
-                'category' => [
-                    'id' => $marketProduct->product->category->id,
-                    'name' => $marketProduct->product->category->name,
-                ],
-                'agent' => [
-                    'id' => $marketProduct->agent->id,
-                    'name' => $marketProduct->agent->full_name,
-                ],
-            ];
-        });
+        $products = $query->get()
+            ->map(function ($marketProduct) {
+                return [
+                    'id' => $marketProduct->id,
+                    'product_id' => $marketProduct->product_id,
+                    'name' => $marketProduct->product->name,
+                    'description' => $marketProduct->product->description,
+                    'image' => $marketProduct->product->image,
+                    'unit' => $marketProduct->product->unit,
+                    'price' => $marketProduct->price,
+                    'stock_quantity' => $marketProduct->stock_quantity,
+                    'category' => [
+                        'id' => $marketProduct->product->category->id,
+                        'name' => $marketProduct->product->category->name,
+                    ],
+                    'agent' => [
+                        'id' => $marketProduct->agent->id,
+                        'name' => $marketProduct->agent->full_name,
+                    ],
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $products,
+            'market' => [
+                'id' => $market->id,
+                'name' => $market->name,
+                'address' => $market->address,
+            ],
+        ]);
+    }
+
+    /**
+     * Get product prices and measurements for a specific market
+     */
+    public function getProductPrices(Request $request, Market $market): JsonResponse
+    {
+        $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'exists:products,id',
+        ]);
+
+        $products = MarketProduct::with(['product.category', 'agent'])
+            ->where('market_id', $market->id)
+            ->whereIn('product_id', $request->product_ids)
+            ->where('is_available', true)
+            ->get()
+            ->map(function ($marketProduct) {
+                return [
+                    'id' => $marketProduct->id,
+                    'product_id' => $marketProduct->product_id,
+                    'name' => $marketProduct->product->name,
+                    'description' => $marketProduct->product->description,
+                    'unit' => $marketProduct->product->unit,
+                    'measurement' => $marketProduct->product->unit, // Same as unit for now
+                    'price' => $marketProduct->price,
+                    'stock_quantity' => $marketProduct->stock_quantity,
+                    'is_available' => $marketProduct->is_available,
+                    'category' => [
+                        'id' => $marketProduct->product->category->id,
+                        'name' => $marketProduct->product->category->name,
+                    ],
+                    'agent' => [
+                        'id' => $marketProduct->agent->id,
+                        'name' => $marketProduct->agent->full_name,
+                    ],
+                ];
+            });
 
         return response()->json([
             'success' => true,

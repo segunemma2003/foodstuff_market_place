@@ -1,9 +1,9 @@
 {
   "name": "FoodStuff Store API",
-  "description": "WhatsApp bot-driven foodstuff marketplace API",
+  "description": "Laravel API for FoodStuff Store marketplace",
   "repository": "https://github.com/yourusername/foodstuff-marketplace",
   "logo": "https://via.placeholder.com/150x150/4CAF50/FFFFFF?text=FS",
-  "keywords": ["laravel", "php", "whatsapp", "marketplace", "api", "nodejs"],
+  "keywords": ["laravel", "php", "marketplace", "api"],
   "website": "https://marketplace.foodstuff.store",
   "env": {
     "APP_NAME": {
@@ -28,7 +28,7 @@
     },
     "APP_URL": {
       "description": "Application URL",
-      "value": "https://your-app-name.herokuapp.com",
+      "value": "https://foodstuff-store-api.herokuapp.com",
       "required": true
     },
     "APP_FRONTEND_URL": {
@@ -114,14 +114,23 @@
       "description": "Resend Email API Key",
       "required": true
     },
-    "NODE_ENV": {
-      "description": "Node.js environment",
-      "value": "production",
+    "TERMII_API_KEY": {
+      "description": "Termii API Key",
       "required": true
     },
-    "WHATSAPP_BOT_PORT": {
-      "description": "WhatsApp bot port",
-      "value": "3000",
+    "TERMII_CHANNEL_ID": {
+      "description": "Termii Channel ID",
+      "value": "whatsapp",
+      "required": true
+    },
+    "TERMII_SENDER_ID": {
+      "description": "Termii Sender ID",
+      "value": "FoodStuff",
+      "required": true
+    },
+    "WHATSAPP_BOT_URL": {
+      "description": "WhatsApp Bot URL",
+      "value": "https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com",
       "required": true
     }
   },
@@ -132,13 +141,11 @@
   ],
   "buildpacks": [
     {
-      "url": "heroku/nodejs"
-    },
-    {
       "url": "heroku/php"
     }
   ],
   "scripts": {
-    "postdeploy": "php artisan migrate --force && php artisan db:seed --force && npm install"
+    "postdeploy": "php artisan migrate --force && php artisan db:seed --force"
   }
 }
+

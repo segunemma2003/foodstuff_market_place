@@ -2,15 +2,17 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
 
-// Express server for Laravel communication
+// Express server
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || process.env.WHATSAPP_BOT_PORT || 3000;
+const PORT = process.env.PORT || 3000;
+const LARAVEL_API_URL = process.env.LARAVEL_API_URL || 'https://foodstuff-store-api.herokuapp.com';
 
-// Initialize WhatsApp client with Heroku-optimized settings
+// Initialize WhatsApp client
 const client = new Client({
     authStrategy: new LocalAuth({
         clientId: 'foodstuff-store-bot',
@@ -80,7 +82,6 @@ client.on('auth_failure', (msg) => {
     console.error('❌ Authentication failed:', msg);
     isReady = false;
 
-    // Restart after auth failure
     setTimeout(() => {
         console.log('🔄 Restarting after auth failure...');
         client.destroy();
@@ -95,7 +96,6 @@ client.on('disconnected', (reason) => {
     console.log('🔌 Client was disconnected:', reason);
     isReady = false;
 
-    // Restart after disconnection
     setTimeout(() => {
         console.log('🔄 Restarting after disconnection...');
         client.destroy();
@@ -110,23 +110,32 @@ client.on('message', async (msg) => {
     try {
         console.log('📨 Message from:', msg.from, 'Body:', msg.body);
 
-        // Simple bot logic
-        const response = await handleMessage(msg.body);
+        // Forward to Laravel API for processing
+        const response = await axios.post(`${LARAVEL_API_URL}/api/v1/whatsapp/process-message`, {
+            from: msg.from,
+            body: msg.body,
+            timestamp: msg.timestamp
+        });
 
-        if (response) {
-            await msg.reply(response);
+        if (response.data && response.data.reply) {
+            await msg.reply(response.data.reply);
         }
 
     } catch (error) {
-        console.error('❌ Error processing message:', error);
+        console.error('❌ Error processing message:', error.message);
+
+        // Fallback response
+        const fallbackResponse = await handleMessageLocally(msg.body);
+        if (fallbackResponse) {
+            await msg.reply(fallbackResponse);
+        }
     }
 });
 
-// Simple message handler
-async function handleMessage(message) {
+// Local message handler (fallback)
+async function handleMessageLocally(message) {
     const msg = message.toLowerCase().trim();
 
-    // Greeting
     if (['hi', 'hello', 'start', 'menu'].includes(msg)) {
         return `🛒 *Welcome to FoodStuff Store!* 🛒
 
@@ -145,7 +154,6 @@ I'm here to help you order your foodstuff items.
 What would you like to order today? 🥕🍚🥩`;
     }
 
-    // Done command
     if (msg === 'done') {
         return `🎉 *Order Summary*
 
@@ -157,7 +165,6 @@ Visit: https://marketplace.foodstuff.store
 Thank you for choosing FoodStuff Store! 🛒✨`;
     }
 
-    // View cart
     if (msg === 'view cart') {
         return `🛒 *Your Cart*
 
@@ -168,12 +175,10 @@ Thank you for choosing FoodStuff Store! 🛒✨`;
 Type 'done' to complete your order!`;
     }
 
-    // Clear cart
     if (msg === 'clear cart') {
         return `🗑️ Cart cleared! Start adding items again or type 'done' to finish.`;
     }
 
-    // Default response
     return `✅ *Added to cart:* ${message}
 
 🛒 What else would you like to add? Or type 'done' to complete your order.`;
@@ -186,7 +191,8 @@ app.get('/health', (req, res) => {
         whatsapp_ready: isReady,
         qr_generated: qrCodeGenerated,
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        laravel_api_url: LARAVEL_API_URL
     });
 });
 
@@ -209,10 +215,7 @@ app.post('/send-message', async (req, res) => {
             });
         }
 
-        // Format phone number
         const formattedPhone = phone.includes('@c.us') ? phone : `${phone}@c.us`;
-
-        // Send message
         await client.sendMessage(formattedPhone, message);
 
         res.json({
@@ -243,9 +246,9 @@ app.get('/status', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 WhatsApp bot server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Laravel API: ${LARAVEL_API_URL}`);
     console.log('🔄 Initializing WhatsApp client...');
 
-    // Initialize WhatsApp client
     setTimeout(() => {
         client.initialize();
     }, 2000);
@@ -264,13 +267,10 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error);
-    // Don't exit, let the process continue
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    // Don't exit, let the process continue
 });

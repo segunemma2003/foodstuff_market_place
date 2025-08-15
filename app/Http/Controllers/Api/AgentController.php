@@ -120,6 +120,47 @@ class AgentController extends Controller
         ]);
     }
 
+    /**
+     * Search orders for agent
+     */
+    public function searchOrders(Request $request): JsonResponse
+    {
+        $request->validate([
+            'query' => 'required|string|min:2|max:255',
+        ]);
+
+        $agent = $this->getCurrentAgent();
+
+        $orders = $agent->orders()
+            ->with('market')
+            ->where(function ($query) use ($request) {
+                $query->where('order_number', 'like', '%' . $request->query . '%')
+                      ->orWhere('customer_name', 'like', '%' . $request->query . '%')
+                      ->orWhere('whatsapp_number', 'like', '%' . $request->query . '%');
+            })
+            ->latest()
+            ->limit(20)
+            ->get()
+            ->map(function ($order) {
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_name' => $order->customer_name,
+                    'whatsapp_number' => $order->whatsapp_number,
+                    'delivery_address' => $order->delivery_address,
+                    'total_amount' => $order->total_amount,
+                    'status' => $order->status,
+                    'created_at' => $order->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $orders,
+            'count' => $orders->count(),
+        ]);
+    }
+
     public function updateOrderStatus(Request $request, Order $order): JsonResponse
     {
         $agent = $this->getCurrentAgent();
@@ -166,6 +207,90 @@ class AgentController extends Controller
         return response()->json([
             'success' => true,
             'data' => $earnings,
+        ]);
+    }
+
+    /**
+     * Get all commissions for agent
+     */
+    public function getCommissions(): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        $commissions = Commission::where('agent_id', $agent->id)
+            ->with('order')
+            ->latest()
+            ->get()
+            ->map(function ($commission) {
+                return [
+                    'id' => $commission->id,
+                    'order_number' => $commission->order->order_number,
+                    'amount' => $commission->amount,
+                    'status' => $commission->status,
+                    'approved_at' => $commission->approved_at,
+                    'paid_at' => $commission->paid_at,
+                    'created_at' => $commission->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $commissions,
+        ]);
+    }
+
+    /**
+     * Get pending commissions for agent
+     */
+    public function getPendingCommissions(): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        $commissions = Commission::where('agent_id', $agent->id)
+            ->where('status', 'pending')
+            ->with('order')
+            ->latest()
+            ->get()
+            ->map(function ($commission) {
+                return [
+                    'id' => $commission->id,
+                    'order_number' => $commission->order->order_number,
+                    'amount' => $commission->amount,
+                    'created_at' => $commission->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $commissions,
+        ]);
+    }
+
+    /**
+     * Get paid commissions for agent
+     */
+    public function getPaidCommissions(): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        $commissions = Commission::where('agent_id', $agent->id)
+            ->where('status', 'paid')
+            ->with('order')
+            ->latest()
+            ->get()
+            ->map(function ($commission) {
+                return [
+                    'id' => $commission->id,
+                    'order_number' => $commission->order->order_number,
+                    'amount' => $commission->amount,
+                    'paid_at' => $commission->paid_at,
+                    'created_at' => $commission->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $commissions,
         ]);
     }
 
