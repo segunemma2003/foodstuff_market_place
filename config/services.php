@@ -32,18 +32,16 @@ return [
     ],
 
     'termii' => [
-        'base_url' => env('TERMII_BASE_URL', 'https://api.ng.termii.com/api'),
         'api_key' => env('TERMII_API_KEY'),
         'channel_id' => env('TERMII_CHANNEL_ID'),
         'sender_id' => env('TERMII_SENDER_ID'),
-        'webhook_secret' => env('TERMII_WEBHOOK_SECRET'),
+        'base_url' => env('TERMII_BASE_URL', 'https://api.ng.termii.com/api'),
     ],
 
     'paystack' => [
-        'base_url' => env('PAYSTACK_BASE_URL', 'https://api.paystack.co'),
-        'public_key' => env('PAYSTACK_PUBLIC_KEY'),
         'secret_key' => env('PAYSTACK_SECRET_KEY'),
-        'webhook_secret' => env('PAYSTACK_WEBHOOK_SECRET'),
+        'public_key' => env('PAYSTACK_PUBLIC_KEY'),
+        'base_url' => env('PAYSTACK_BASE_URL', 'https://api.paystack.co'),
     ],
 
 ];

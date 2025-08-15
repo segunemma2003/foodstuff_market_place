@@ -24,6 +24,9 @@ Route::prefix('v1')->group(function () {
     // WhatsApp Bot API
     Route::post('/whatsapp/webhook', [WhatsAppController::class, 'webhook']);
     Route::post('/whatsapp/send-message', [WhatsAppController::class, 'sendMessage']);
+    Route::post('/whatsapp/process-message', [WhatsAppController::class, 'processMessage']);
+    Route::get('/whatsapp/status', [WhatsAppController::class, 'getStatus']);
+    Route::post('/whatsapp/initialize', [WhatsAppController::class, 'initialize']);
 
     // Market and Product APIs
     Route::get('/markets/nearby', [MarketController::class, 'getNearbyMarkets']);

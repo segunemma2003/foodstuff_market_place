@@ -3,8 +3,8 @@
   "description": "WhatsApp bot-driven foodstuff marketplace API",
   "repository": "https://github.com/yourusername/foodstuff-marketplace",
   "logo": "https://via.placeholder.com/150x150/4CAF50/FFFFFF?text=FS",
-  "keywords": ["laravel", "php", "whatsapp", "marketplace", "api"],
-  "website": "https://foodstuff.store",
+  "keywords": ["laravel", "php", "whatsapp", "marketplace", "api", "nodejs"],
+  "website": "https://marketplace.foodstuff.store",
   "env": {
     "APP_NAME": {
       "description": "Application name",
@@ -33,7 +33,7 @@
     },
     "APP_FRONTEND_URL": {
       "description": "Frontend URL",
-      "value": "https://foodstuff.store",
+      "value": "https://marketplace.foodstuff.store",
       "required": true
     },
     "LOG_CHANNEL": {
@@ -66,16 +66,35 @@
       "value": "120",
       "required": true
     },
-    "TERMII_API_KEY": {
-      "description": "Termii API Key for WhatsApp",
+    "FILESYSTEM_DISK": {
+      "description": "Filesystem disk",
+      "value": "s3",
       "required": true
     },
-    "TERMII_CHANNEL_ID": {
-      "description": "Termii WhatsApp Channel ID",
+    "AWS_ACCESS_KEY_ID": {
+      "description": "AWS Access Key ID",
       "required": true
     },
-    "TERMII_SENDER_ID": {
-      "description": "Termii Sender ID",
+    "AWS_SECRET_ACCESS_KEY": {
+      "description": "AWS Secret Access Key",
+      "required": true
+    },
+    "AWS_DEFAULT_REGION": {
+      "description": "AWS Default Region",
+      "value": "us-east-1",
+      "required": true
+    },
+    "AWS_BUCKET": {
+      "description": "AWS S3 Bucket",
+      "required": true
+    },
+    "AWS_URL": {
+      "description": "AWS S3 URL",
+      "required": true
+    },
+    "AWS_USE_PATH_STYLE_ENDPOINT": {
+      "description": "AWS Path Style Endpoint",
+      "value": "false",
       "required": true
     },
     "PAYSTACK_SECRET_KEY": {
@@ -85,19 +104,41 @@
     "PAYSTACK_PUBLIC_KEY": {
       "description": "Paystack Public Key",
       "required": true
+    },
+    "PAYSTACK_BASE_URL": {
+      "description": "Paystack Base URL",
+      "value": "https://api.paystack.co",
+      "required": true
+    },
+    "RESEND_KEY": {
+      "description": "Resend Email API Key",
+      "required": true
+    },
+    "NODE_ENV": {
+      "description": "Node.js environment",
+      "value": "production",
+      "required": true
+    },
+    "WHATSAPP_BOT_PORT": {
+      "description": "WhatsApp bot port",
+      "value": "3000",
+      "required": true
     }
   },
   "addons": [
     {
-      "plan": "heroku-postgresql:mini"
+      "plan": "heroku-postgresql:essential-0"
     }
   ],
   "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    },
     {
       "url": "heroku/php"
     }
   ],
   "scripts": {
-    "postdeploy": "php artisan migrate --force && php artisan db:seed --force"
+    "postdeploy": "php artisan migrate --force && php artisan db:seed --force && npm install"
   }
 }
