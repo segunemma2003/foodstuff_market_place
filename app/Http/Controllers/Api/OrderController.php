@@ -411,6 +411,184 @@ class OrderController extends Controller
     }
 
     /**
+     * Get prices for items in a WhatsApp order by order ID
+     */
+    public function getWhatsAppOrderPrices(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'order_id' => 'required|string',
+                'market_id' => 'required|exists:markets,id',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        try {
+            $orderId = $request->order_id;
+            $marketId = $request->market_id;
+
+            // Check if it's a temporary WhatsApp order ID
+            if (str_starts_with($orderId, 'TEMP_')) {
+                // Extract WhatsApp number from temp order ID
+                $parts = explode('_', $orderId);
+                if (count($parts) >= 3) {
+                    $whatsappHash = $parts[2];
+
+                    // Find WhatsApp session by hash
+                    $session = WhatsappSession::where('status', 'active')
+                        ->get()
+                        ->filter(function($session) use ($whatsappHash) {
+                            return substr(md5($session->whatsapp_number), 0, 6) === $whatsappHash;
+                        })
+                        ->first();
+
+                    if ($session && $session->cart_items) {
+                        $pricedItems = [];
+                        $availableCount = 0;
+                        $unavailableCount = 0;
+
+                        foreach ($session->cart_items as $item) {
+                            // Use fuzzy matching to find the market product
+                            $marketProduct = $this->findProductByFuzzyMatch($marketId, $item['name']);
+
+                            if (!$marketProduct) {
+                                // Product not found - add as unavailable
+                                $pricedItems[] = [
+                                    'product_name' => $item['name'],
+                                    'quantity' => $item['quantity'],
+                                    'measurement_scale' => $item['quantity'], // Use quantity as measurement scale
+                                    'is_available' => false,
+                                    'availability_status' => 'product_not_found',
+                                    'message' => "Product '{$item['name']}' not found in selected market",
+                                ];
+                                $unavailableCount++;
+                                continue;
+                            }
+
+                            // Find the specific price for the measurement scale
+                            $productPrice = $marketProduct->productPrices()
+                                ->where('measurement_scale', $item['quantity'])
+                                ->where('is_available', true)
+                                ->first();
+
+                            if (!$productPrice) {
+                                // Product found but measurement scale not available - add as unavailable
+                                $pricedItems[] = [
+                                    'product_id' => $marketProduct->product_id,
+                                    'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                                    'base_product_name' => $marketProduct->product->name,
+                                    'category' => $marketProduct->product->category->name,
+                                    'image' => $marketProduct->product->image,
+                                    'quantity' => $item['quantity'],
+                                    'measurement_scale' => $item['quantity'],
+                                    'is_available' => false,
+                                    'availability_status' => 'measurement_scale_not_available',
+                                    'message' => "Measurement scale '{$item['quantity']}' not available for this product",
+                                    'available_measurement_scales' => $marketProduct->productPrices()
+                                        ->where('is_available', true)
+                                        ->pluck('measurement_scale')
+                                        ->toArray(),
+                                ];
+                                $unavailableCount++;
+                                continue;
+                            }
+
+                            // Product and measurement scale are available
+                            $pricedItems[] = [
+                                'product_id' => $marketProduct->product_id,
+                                'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                                'base_product_name' => $marketProduct->product->name,
+                                'category' => $marketProduct->product->category->name,
+                                'image' => $marketProduct->product->image,
+                                'quantity' => $item['quantity'],
+                                'measurement_scale' => $item['quantity'],
+                                'unit_price' => $productPrice->price,
+                                'agent_name' => $marketProduct->agent->full_name,
+                                'agent_id' => $marketProduct->agent_id,
+                                'stock_available' => $productPrice->stock_quantity,
+                                'is_available' => true,
+                                'availability_status' => 'available',
+                                'matched_product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                            ];
+                            $availableCount++;
+                        }
+
+                        return response()->json([
+                            'success' => true,
+                            'data' => [
+                                'order_id' => $orderId,
+                                'market_id' => $marketId,
+                                'items' => $pricedItems,
+                                'available_count' => $availableCount,
+                                'unavailable_count' => $unavailableCount,
+                                'is_whatsapp_session' => true,
+                                'session_id' => $session->session_id,
+                            ],
+                        ]);
+                    }
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'WhatsApp session not found',
+                ], 404);
+            }
+
+            // Try to find real order
+            $order = Order::with(['orderItems.product', 'market', 'agent'])->find($orderId);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found',
+                ], 404);
+            }
+
+            // For real orders, return the existing items with their prices
+            $pricedItems = $order->orderItems->map(function ($item) {
+                return [
+                    'product_id' => $item->product->id,
+                    'product_name' => $item->product_name,
+                    'base_product_name' => $item->product->name,
+                    'category' => $item->product->category->name,
+                    'image' => $item->product->image,
+                    'quantity' => $item->quantity,
+                    'measurement_scale' => $item->measurement_scale,
+                    'unit_price' => $item->unit_price,
+                    'total_price' => $item->total_price,
+                    'is_available' => true,
+                    'availability_status' => 'available',
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'order_id' => $orderId,
+                    'market_id' => $order->market_id,
+                    'items' => $pricedItems,
+                    'available_count' => $pricedItems->count(),
+                    'unavailable_count' => 0,
+                    'is_whatsapp_session' => false,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting WhatsApp order prices: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get order prices',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Find product by fuzzy matching with 80% similarity threshold
      */
     private function findProductByFuzzyMatch(int $marketId, string $searchProductName): ?MarketProduct
