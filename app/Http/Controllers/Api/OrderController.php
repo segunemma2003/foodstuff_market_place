@@ -128,25 +128,25 @@ class OrderController extends Controller
                 ], 404);
             }
 
-            $items = $order->orderItems()->with('product')->get();
+        $items = $order->orderItems()->with('product')->get();
 
-            return response()->json([
-                'success' => true,
-                'data' => $items->map(function ($item) {
-                    return [
-                        'id' => $item->id,
-                        'product_name' => $item->product_name,
-                        'quantity' => $item->quantity,
-                        'unit_price' => $item->unit_price,
-                        'total_price' => $item->total_price,
-                        'product' => [
-                            'id' => $item->product->id,
-                            'name' => $item->product->name,
-                            'unit' => $item->product->unit,
-                            'description' => $item->product->description,
-                        ],
-                    ];
-                }),
+        return response()->json([
+            'success' => true,
+            'data' => $items->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'product_name' => $item->product_name,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'total_price' => $item->total_price,
+                    'product' => [
+                        'id' => $item->product->id,
+                        'name' => $item->product->name,
+                        'unit' => $item->product->unit,
+                        'description' => $item->product->description,
+                    ],
+                ];
+            }),
                 'is_whatsapp_session' => false,
             ]);
 
@@ -265,44 +265,44 @@ class OrderController extends Controller
                 ], 404);
             }
 
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'status' => $order->status,
-                    'customer_name' => $order->customer_name,
-                    'delivery_address' => $order->delivery_address,
-                    'delivery_latitude' => $order->delivery_latitude,
-                    'delivery_longitude' => $order->delivery_longitude,
-                    'subtotal' => $order->subtotal,
-                    'delivery_fee' => $order->delivery_fee,
-                    'total_amount' => $order->total_amount,
-                    'market' => $order->market ? [
-                        'id' => $order->market->id,
-                        'name' => $order->market->name,
-                        'address' => $order->market->address,
-                    ] : null,
-                    'agent' => $order->agent ? [
-                        'id' => $order->agent->id,
-                        'name' => $order->agent->full_name,
-                        'phone' => $order->agent->phone,
-                    ] : null,
-                    'items' => $order->orderItems->map(function ($item) {
-                        return [
-                            'id' => $item->id,
-                            'product_name' => $item->product_name,
-                            'quantity' => $item->quantity,
-                            'unit_price' => $item->unit_price,
-                            'total_price' => $item->total_price,
-                            'product' => [
-                                'id' => $item->product->id,
-                                'name' => $item->product->name,
-                                'unit' => $item->product->unit,
-                            ],
-                        ];
-                    }),
-                    'created_at' => $order->created_at,
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'status' => $order->status,
+                'customer_name' => $order->customer_name,
+                'delivery_address' => $order->delivery_address,
+                'delivery_latitude' => $order->delivery_latitude,
+                'delivery_longitude' => $order->delivery_longitude,
+                'subtotal' => $order->subtotal,
+                'delivery_fee' => $order->delivery_fee,
+                'total_amount' => $order->total_amount,
+                'market' => $order->market ? [
+                    'id' => $order->market->id,
+                    'name' => $order->market->name,
+                    'address' => $order->market->address,
+                ] : null,
+                'agent' => $order->agent ? [
+                    'id' => $order->agent->id,
+                    'name' => $order->agent->full_name,
+                    'phone' => $order->agent->phone,
+                ] : null,
+                'items' => $order->orderItems->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'product_name' => $item->product_name,
+                        'quantity' => $item->quantity,
+                        'unit_price' => $item->unit_price,
+                        'total_price' => $item->total_price,
+                        'product' => [
+                            'id' => $item->product->id,
+                            'name' => $item->product->name,
+                            'unit' => $item->product->unit,
+                        ],
+                    ];
+                }),
+                'created_at' => $order->created_at,
                     'is_whatsapp_session' => false,
                 ],
             ]);

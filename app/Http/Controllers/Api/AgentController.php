@@ -473,85 +473,103 @@ class AgentController extends Controller
 
     public function addProduct(Request $request): JsonResponse
     {
-        $agent = $this->getCurrentAgent();
+        try {
+            $agent = $this->getCurrentAgent();
 
-        // Debug: Log the incoming request data
-        Log::info('Agent addProduct request data:', [
-            'all_data' => $request->all(),
-            'prices' => $request->input('prices'),
-            'prices_type' => gettype($request->input('prices')),
-            'content_type' => $request->header('Content-Type'),
-        ]);
+            // Debug: Log the incoming request data
+            Log::info('Agent addProduct request data:', [
+                'all_data' => $request->all(),
+                'prices' => $request->input('prices'),
+                'prices_type' => gettype($request->input('prices')),
+                'content_type' => $request->header('Content-Type'),
+            ]);
 
-        $request->validate([
-            'product_id' => 'required|exists:products,id',
-            'product_name' => 'required|string|max:255',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
-            'prices' => 'required|array|min:1',
-            'prices.*.measurement_scale' => 'required|string|max:50',
-            'prices.*.price' => 'required|numeric|min:0',
-            'prices.*.stock_quantity' => 'nullable|integer|min:0',
-        ]);
+            $request->validate([
+                'product_id' => 'required|exists:products,id',
+                'product_name' => 'required|string|max:255',
+                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
+                'prices' => 'required|array|min:1',
+                'prices.*.measurement_scale' => 'required|string|max:50',
+                'prices.*.price' => 'required|numeric|min:0',
+                'prices.*.stock_quantity' => 'nullable|integer|min:0',
+            ]);
 
-        // Check if product name already exists for this agent in this market
-        $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-            ->where('agent_id', $agent->id)
-            ->where('product_name', $request->product_name)
-            ->first();
+            // Check if product name already exists for this agent in this market
+            $existingProduct = MarketProduct::where('market_id', $agent->market_id)
+                ->where('agent_id', $agent->id)
+                ->where('product_name', $request->product_name)
+                ->first();
 
-        if ($existingProduct) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Product with this name already exists in your inventory',
-            ], 400);
-        }
-
-        // Handle image upload if provided
-        $imageUrl = null;
-        if ($request->hasFile('image')) {
-            try {
-                $image = $request->file('image');
-                $imageName = time() . '_' . $image->getClientOriginalName();
-                $imagePath = 'products/' . $imageName;
-
-                // Upload to S3
-                $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
-                $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
-            } catch (\Exception $e) {
+            if ($existingProduct) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Failed to upload image: ' . $e->getMessage(),
+                    'message' => 'Product with this name already exists in your inventory',
                 ], 400);
             }
-        }
 
-        // Update the product image if provided
-        if ($imageUrl) {
-            \App\Models\Product::where('id', $request->product_id)->update(['image' => $imageUrl]);
-        }
+            // Handle image upload if provided
+            $imageUrl = null;
+            if ($request->hasFile('image')) {
+                try {
+                    $image = $request->file('image');
+                    $imageName = time() . '_' . $image->getClientOriginalName();
+                    $imagePath = 'products/' . $imageName;
 
-        $marketProduct = MarketProduct::create([
-            'market_id' => $agent->market_id,
-            'product_id' => $request->product_id,
-            'product_name' => $request->product_name,
-            'agent_id' => $agent->id,
-            'is_available' => true,
-        ]);
+                    // Upload to S3
+                    $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
+                    $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Failed to upload image: ' . $e->getMessage(),
+                    ], 400);
+                }
+            }
 
-        // Create product prices for different measurement scales
-        foreach ($request->prices as $priceData) {
-            $marketProduct->productPrices()->create([
-                'measurement_scale' => $priceData['measurement_scale'],
-                'price' => $priceData['price'],
-                'stock_quantity' => $priceData['stock_quantity'] ?? null,
+            // Update the product image if provided
+            if ($imageUrl) {
+                \App\Models\Product::where('id', $request->product_id)->update(['image' => $imageUrl]);
+            }
+
+            $marketProduct = MarketProduct::create([
+                'market_id' => $agent->market_id,
+                'product_id' => $request->product_id,
+                'product_name' => $request->product_name,
+                'agent_id' => $agent->id,
                 'is_available' => true,
             ]);
-        }
 
-        return response()->json([
-            'success' => true,
-            'data' => $marketProduct->load('product'),
-        ], 201);
+            // Create product prices for different measurement scales
+            foreach ($request->prices as $priceData) {
+                $marketProduct->productPrices()->create([
+                    'measurement_scale' => $priceData['measurement_scale'],
+                    'price' => $priceData['price'],
+                    'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                    'is_available' => true,
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $marketProduct->load('product'),
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation error in addProduct: ' . json_encode($e->errors()));
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error in addProduct: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while adding the product',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function updateProduct(Request $request, MarketProduct $marketProduct): JsonResponse
@@ -750,8 +768,32 @@ class AgentController extends Controller
 
     private function getCurrentAgent(): Agent
     {
-        // In a real implementation, you'd get this from the authenticated user
-        // For now, we'll use a placeholder
-        return Agent::first();
+        // Extract agent ID from bearer token
+        $token = request()->bearerToken();
+
+        if (!$token) {
+            throw new \Exception('No authentication token provided');
+        }
+
+        // Parse token format: agent_token_{agent_id}_{timestamp}
+        $parts = explode('_', $token);
+
+        if (count($parts) < 3 || $parts[0] !== 'agent' || $parts[1] !== 'token') {
+            throw new \Exception('Invalid token format');
+        }
+
+        $agentId = $parts[2];
+
+        $agent = Agent::find($agentId);
+
+        if (!$agent) {
+            throw new \Exception('Agent not found');
+        }
+
+        if (!$agent->is_active || $agent->is_suspended) {
+            throw new \Exception('Agent account is suspended or inactive');
+        }
+
+        return $agent;
     }
 }

@@ -94,40 +94,40 @@ class AdminController extends Controller
             // Check if database connection is working
             DB::connection()->getPdo();
 
-            $stats = [
-                'total_markets' => Market::count(),
-                'total_agents' => Agent::count(),
-                'total_orders' => Order::count(),
-                'pending_orders' => Order::where('status', 'pending')->count(),
-                'paid_orders' => Order::where('status', 'paid')->count(),
-                'delivered_orders' => Order::where('status', 'delivered')->count(),
-                'total_revenue' => Order::where('status', 'paid')->sum('total_amount'),
-            ];
+        $stats = [
+            'total_markets' => Market::count(),
+            'total_agents' => Agent::count(),
+            'total_orders' => Order::count(),
+            'pending_orders' => Order::where('status', 'pending')->count(),
+            'paid_orders' => Order::where('status', 'paid')->count(),
+            'delivered_orders' => Order::where('status', 'delivered')->count(),
+            'total_revenue' => Order::where('status', 'paid')->sum('total_amount'),
+        ];
 
-            $recentOrders = Order::with(['market', 'agent'])
-                ->latest()
-                ->take(10)
-                ->get()
-                ->map(function ($order) {
-                    return [
-                        'id' => $order->id,
-                        'order_number' => $order->order_number,
-                        'customer_name' => $order->customer_name,
-                        'total_amount' => $order->total_amount,
-                        'status' => $order->status,
-                        'market' => $order->market ? $order->market->name : null,
-                        'agent' => $order->agent ? $order->agent->full_name : null,
-                        'created_at' => $order->created_at,
-                    ];
-                });
+        $recentOrders = Order::with(['market', 'agent'])
+            ->latest()
+            ->take(10)
+            ->get()
+            ->map(function ($order) {
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_name' => $order->customer_name,
+                    'total_amount' => $order->total_amount,
+                    'status' => $order->status,
+                    'market' => $order->market ? $order->market->name : null,
+                    'agent' => $order->agent ? $order->agent->full_name : null,
+                    'created_at' => $order->created_at,
+                ];
+            });
 
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'stats' => $stats,
-                    'recent_orders' => $recentOrders,
-                ],
-            ]);
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'stats' => $stats,
+                'recent_orders' => $recentOrders,
+            ],
+        ]);
         } catch (\Exception $e) {
             Log::error('Admin dashboard error: ' . $e->getMessage());
 
@@ -161,12 +161,12 @@ class AdminController extends Controller
     public function getMarkets(): JsonResponse
     {
         try {
-            $markets = Market::all();
+        $markets = Market::all();
 
-            return response()->json([
-                'success' => true,
-                'data' => $markets,
-            ]);
+        return response()->json([
+            'success' => true,
+            'data' => $markets,
+        ]);
         } catch (\Exception $e) {
             Log::error('Get markets error: ' . $e->getMessage());
 
@@ -312,28 +312,28 @@ class AdminController extends Controller
             }
 
             $agents = $query->get()
-                ->map(function ($agent) {
-                    return [
-                        'id' => $agent->id,
-                        'name' => $agent->full_name,
-                        'email' => $agent->email,
-                        'phone' => $agent->phone,
+            ->map(function ($agent) {
+                return [
+                    'id' => $agent->id,
+                    'name' => $agent->full_name,
+                    'email' => $agent->email,
+                    'phone' => $agent->phone,
                         'market' => $agent->market ? $agent->market->name : null,
                         'market_id' => $agent->market_id,
                         'bank_name' => $agent->bank_name,
                         'account_name' => $agent->account_name,
                         'bank_verified' => $agent->bank_verified,
-                        'is_active' => $agent->is_active,
-                        'is_suspended' => $agent->is_suspended,
-                        'last_login_at' => $agent->last_login_at,
-                        'created_at' => $agent->created_at,
-                    ];
-                });
+                    'is_active' => $agent->is_active,
+                    'is_suspended' => $agent->is_suspended,
+                    'last_login_at' => $agent->last_login_at,
+                    'created_at' => $agent->created_at,
+                ];
+            });
 
-            return response()->json([
-                'success' => true,
-                'data' => $agents,
-            ]);
+        return response()->json([
+            'success' => true,
+            'data' => $agents,
+        ]);
         } catch (\Exception $e) {
             Log::error('Get agents error: ' . $e->getMessage());
 
