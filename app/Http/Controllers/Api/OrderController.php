@@ -618,10 +618,12 @@ class OrderController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Error in getMarketProductPrices: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to get market product prices',
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ], 500);
         }
     }
