@@ -82,7 +82,7 @@ Route::prefix('v1')->group(function () {
         Route::put('/markets/{market}/toggle-status', [AdminController::class, 'toggleMarketStatus']);
 
         // Agent management
-        Route::get('/agents', [AdminController::class, 'getAgents']);
+        Route::get('/agents', [AdminController::class, 'getAgents']); // Can filter by market_id query parameter
         Route::post('/agents', [AdminController::class, 'createAgent']);
         Route::get('/agents/{agent}', [AdminController::class, 'showAgent']);
         Route::put('/agents/{agent}', [AdminController::class, 'updateAgent']);
@@ -94,6 +94,7 @@ Route::prefix('v1')->group(function () {
 
         // Product management
         Route::get('/products', [AdminController::class, 'getProducts']);
+        Route::get('/products/market', [AdminController::class, 'getProductsByMarket']); // Get products by market_id
         Route::post('/products', [AdminController::class, 'createProduct']);
         Route::get('/products/{product}', [AdminController::class, 'showProduct']);
         Route::put('/products/{product}', [AdminController::class, 'updateProduct']);

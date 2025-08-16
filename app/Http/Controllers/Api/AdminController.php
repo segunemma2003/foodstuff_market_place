@@ -301,11 +301,17 @@ class AdminController extends Controller
         ], 201);
     }
 
-    public function getAgents(): JsonResponse
+    public function getAgents(Request $request): JsonResponse
     {
         try {
-            $agents = Agent::with(['market'])
-                ->get()
+            $query = Agent::with(['market']);
+
+            // Filter by market if market_id is provided
+            if ($request->has('market_id') && $request->market_id) {
+                $query->where('market_id', $request->market_id);
+            }
+
+            $agents = $query->get()
                 ->map(function ($agent) {
                     return [
                         'id' => $agent->id,
@@ -313,6 +319,7 @@ class AdminController extends Controller
                         'email' => $agent->email,
                         'phone' => $agent->phone,
                         'market' => $agent->market ? $agent->market->name : null,
+                        'market_id' => $agent->market_id,
                         'bank_name' => $agent->bank_name,
                         'account_name' => $agent->account_name,
                         'bank_verified' => $agent->bank_verified,
@@ -504,6 +511,48 @@ class AdminController extends Controller
             'success' => true,
             'data' => $products,
         ]);
+    }
+
+    public function getProductsByMarket(Request $request): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'required|exists:markets,id',
+        ]);
+
+        try {
+            $marketProducts = MarketProduct::with(['product.category', 'agent'])
+                ->where('market_id', $request->market_id)
+                ->get()
+                ->map(function ($marketProduct) {
+                    return [
+                        'id' => $marketProduct->id,
+                        'product_id' => $marketProduct->product_id,
+                        'product_name' => $marketProduct->product->name,
+                        'product_description' => $marketProduct->product->description,
+                        'unit' => $marketProduct->product->unit,
+                        'category' => $marketProduct->product->category->name,
+                        'agent_name' => $marketProduct->agent->full_name,
+                        'agent_id' => $marketProduct->agent_id,
+                        'price' => $marketProduct->price,
+                        'stock_quantity' => $marketProduct->stock_quantity,
+                        'is_available' => $marketProduct->is_available,
+                        'created_at' => $marketProduct->created_at,
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $marketProducts,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get products by market error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch products for market',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     public function createProduct(Request $request): JsonResponse
