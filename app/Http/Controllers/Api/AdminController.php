@@ -242,21 +242,28 @@ class AdminController extends Controller
             'account_name' => 'required|string',
         ]);
 
-        // Verify bank account with Paystack (temporarily disabled for testing)
+                // Verify bank account with Paystack
         $verificationResult = $this->paystackService->verifyAccountNumber(
             $request->account_number,
             $request->bank_code
         );
 
-        // For testing, we'll skip bank verification if it fails
-        $bankVerified = $verificationResult['success'];
+        if (!$verificationResult['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bank account verification failed',
+                'error' => $verificationResult['message'],
+            ], 422);
+        }
 
-        if ($verificationResult['success']) {
-            // Verify that the account name matches
-            $verifiedAccountName = $verificationResult['data']['account_name'] ?? '';
-            if (strtolower(trim($verifiedAccountName)) !== strtolower(trim($request->account_name))) {
-                $bankVerified = false;
-            }
+        // Verify that the account name matches
+        $verifiedAccountName = $verificationResult['data']['account_name'] ?? '';
+        if (strtolower(trim($verifiedAccountName)) !== strtolower(trim($request->account_name))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Account name does not match the verified account name',
+                'error' => 'Expected: ' . $verifiedAccountName . ', Provided: ' . $request->account_name,
+            ], 422);
         }
 
         $password = strtolower($request->first_name); // Default password
@@ -272,7 +279,7 @@ class AdminController extends Controller
             'bank_name' => $request->bank_name,
             'account_number' => $request->account_number,
             'account_name' => $request->account_name,
-            'bank_verified' => $bankVerified,
+            'bank_verified' => true,
         ]);
 
         // Send welcome email with credentials
