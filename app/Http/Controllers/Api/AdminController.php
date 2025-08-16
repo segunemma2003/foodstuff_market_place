@@ -267,7 +267,7 @@ class AdminController extends Controller
             'last_name' => $request->last_name,
             'email' => $request->email,
             'phone' => $request->phone,
-            'password' => Hash::make($password),
+            'password' => $password,
             'bank_code' => $request->bank_code,
             'bank_name' => $request->bank_name,
             'account_number' => $request->account_number,
