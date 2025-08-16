@@ -603,13 +603,6 @@ class OrderController extends Controller
         $bestSimilarity = 0;
         $threshold = 0.7; // Lowered from 0.8 to 0.7 for better matching
 
-        // Debug: Log the search
-        Log::info('Fuzzy matching search:', [
-            'search_product_name' => $searchProductName,
-            'market_id' => $marketId,
-            'available_products_count' => $marketProducts->count(),
-        ]);
-
         foreach ($marketProducts as $marketProduct) {
             // Check both product_name (custom name) and base product name
             $productNames = [
@@ -622,28 +615,12 @@ class OrderController extends Controller
 
                 $similarity = $this->calculateSimilarity($searchProductName, $productName);
 
-                // Debug: Log each comparison
-                Log::info('Product comparison:', [
-                    'search' => $searchProductName,
-                    'database' => $productName,
-                    'similarity' => $similarity,
-                    'threshold' => $threshold,
-                    'is_match' => $similarity >= $threshold,
-                ]);
-
                 if ($similarity > $bestSimilarity && $similarity >= $threshold) {
                     $bestSimilarity = $similarity;
                     $bestMatch = $marketProduct;
                 }
             }
         }
-
-        // Debug: Log the result
-        Log::info('Fuzzy matching result:', [
-            'search_product_name' => $searchProductName,
-            'best_match' => $bestMatch ? ($bestMatch->product_name ?? $bestMatch->product->name) : 'none',
-            'best_similarity' => $bestSimilarity,
-        ]);
 
         return $bestMatch;
     }

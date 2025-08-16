@@ -476,14 +476,6 @@ class AgentController extends Controller
         try {
             $agent = $this->getCurrentAgent();
 
-            // Debug: Log the incoming request data
-            Log::info('Agent addProduct request data:', [
-                'all_data' => $request->all(),
-                'prices' => $request->input('prices'),
-                'prices_type' => gettype($request->input('prices')),
-                'content_type' => $request->header('Content-Type'),
-            ]);
-
             $request->validate([
                 'product_id' => 'required|exists:products,id',
                 'product_name' => 'required|string|max:255',
@@ -555,15 +547,12 @@ class AgentController extends Controller
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation error in addProduct: ' . json_encode($e->errors()));
             return response()->json([
                 'success' => false,
                 'message' => 'Validation failed',
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Error in addProduct: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while adding the product',
