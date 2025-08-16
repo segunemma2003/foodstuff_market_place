@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Category;
 use App\Models\MarketProduct;
+use App\Models\Commission;
 use App\Services\PaymentService;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
@@ -147,8 +148,6 @@ class AdminController extends Controller
             'address' => 'required|string',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'phone' => 'nullable|string',
-            'email' => 'nullable|email',
         ]);
 
         $market = Market::create($request->all());
@@ -195,8 +194,6 @@ class AdminController extends Controller
             'address' => 'sometimes|required|string',
             'latitude' => 'sometimes|required|numeric|between:-90,90',
             'longitude' => 'sometimes|required|numeric|between:-180,180',
-            'phone' => 'nullable|string',
-            'email' => 'nullable|email',
         ]);
 
         $market->update($request->all());

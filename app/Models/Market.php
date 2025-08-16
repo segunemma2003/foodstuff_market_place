@@ -16,8 +16,6 @@ class Market extends Model
         'address',
         'latitude',
         'longitude',
-        'phone',
-        'email',
         'is_active',
     ];
 
