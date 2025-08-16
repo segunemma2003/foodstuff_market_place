@@ -177,6 +177,6 @@ Route::prefix('v1')->group(function () {
     // Health check route
     Route::get('/admin/health', [AdminController::class, 'healthCheck']);
 
-    // Cart price calculation (public route)
-    Route::post('/orders/calculate-prices', [OrderController::class, 'calculateCartPrices']);
+    // Get cart prices (public route)
+    Route::post('/orders/get-prices', [OrderController::class, 'getCartPrices']);
 });

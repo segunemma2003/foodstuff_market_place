@@ -172,24 +172,22 @@ class OrderController extends Controller
         ]);
     }
 
-    public function calculateCartPrices(Request $request): JsonResponse
+    public function getCartPrices(Request $request): JsonResponse
     {
         $request->validate([
             'market_id' => 'required|exists:markets,id',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|integer|min:1',
             'items.*.measurement_scale' => 'required|string|max:50',
         ]);
 
         try {
             $marketId = $request->market_id;
             $items = $request->items;
-            $calculatedItems = [];
-            $subtotal = 0;
+            $pricedItems = [];
 
             foreach ($items as $item) {
-                // Find the market product with the specific measurement scale
+                // Find the market product
                 $marketProduct = MarketProduct::with(['product.category', 'productPrices', 'agent'])
                     ->where('market_id', $marketId)
                     ->where('product_id', $item['product_id'])
@@ -219,44 +217,33 @@ class OrderController extends Controller
                     ], 400);
                 }
 
-                $unitPrice = $productPrice->price;
-                $totalPrice = $item['quantity'] * $unitPrice;
-                $subtotal += $totalPrice;
-
-                $calculatedItems[] = [
+                $pricedItems[] = [
                     'product_id' => $item['product_id'],
                     'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
                     'base_product_name' => $marketProduct->product->name,
                     'category' => $marketProduct->product->category->name,
                     'measurement_scale' => $item['measurement_scale'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $unitPrice,
-                    'total_price' => $totalPrice,
+                    'unit_price' => $productPrice->price,
                     'agent_name' => $marketProduct->agent->full_name,
                     'agent_id' => $marketProduct->agent_id,
                     'stock_available' => $productPrice->stock_quantity,
+                    'is_available' => $productPrice->is_available,
                 ];
             }
-
-            // Calculate delivery fee (you can customize this logic)
-            $deliveryFee = 500.0; // Default delivery fee - you might want to calculate based on coordinates
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'market_id' => $marketId,
-                    'items' => $calculatedItems,
-                    'subtotal' => $subtotal,
-                    'delivery_fee' => $deliveryFee,
-                    'total_amount' => $subtotal + $deliveryFee,
-                    'item_count' => count($calculatedItems),
+                    'items' => $pricedItems,
+                    'item_count' => count($pricedItems),
                 ],
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to calculate prices',
+                'message' => 'Failed to get prices',
                 'error' => $e->getMessage(),
             ], 500);
         }
