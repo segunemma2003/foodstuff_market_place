@@ -249,14 +249,75 @@ class OrderController extends Controller
         }
     }
 
+    /**
+     * Get all measurement scales and prices for products in a market
+     */
+    public function getMarketProductPrices(Request $request): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'required|exists:markets,id',
+        ]);
+
+        try {
+            $marketProducts = MarketProduct::with(['product.category', 'productPrices', 'agent'])
+                ->where('market_id', $request->market_id)
+                ->where('is_available', true)
+                ->get();
+
+            $products = [];
+            foreach ($marketProducts as $marketProduct) {
+                $prices = [];
+                foreach ($marketProduct->productPrices as $price) {
+                    if ($price->is_available) {
+                        $prices[] = [
+                            'measurement_scale' => $price->measurement_scale,
+                            'price' => $price->price,
+                            'stock_quantity' => $price->stock_quantity,
+                            'is_available' => $price->is_available,
+                        ];
+                    }
+                }
+
+                if (!empty($prices)) {
+                    $products[] = [
+                        'product_id' => $marketProduct->product_id,
+                        'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                        'base_product_name' => $marketProduct->product->name,
+                        'category' => $marketProduct->product->category->name,
+                        'agent_name' => $marketProduct->agent->full_name,
+                        'agent_id' => $marketProduct->agent_id,
+                        'prices' => $prices,
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'market_id' => $request->market_id,
+                    'products' => $products,
+                    'product_count' => count($products),
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get market product prices',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function updateItems(Request $request, Order $order): JsonResponse
     {
         $request->validate([
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.quantity' => 'required|numeric|min:0.01', // Allow decimal quantities
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.product_name' => 'required|string|max:255',
+            'items.*.measurement_scale' => 'required|string|max:50', // Add measurement scale
         ]);
 
         try {
@@ -271,6 +332,7 @@ class OrderController extends Controller
                     'product_name' => $item['product_name'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
+                    'measurement_scale' => $item['measurement_scale'], // Store measurement scale
                     'total_price' => $item['quantity'] * $item['unit_price'],
                 ]);
 
