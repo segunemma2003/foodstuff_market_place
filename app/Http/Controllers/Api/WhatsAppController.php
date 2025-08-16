@@ -87,33 +87,32 @@ class WhatsAppController extends Controller
                 'items.*.notes' => 'nullable|string',
             ]);
 
-            // Create order
-            $order = $this->orderService->createOrderFromWhatsApp(
-                $request->whatsapp_number,
-                $request->items
+            // Create or update WhatsApp session with cart items
+            $session = WhatsappSession::updateOrCreate(
+                ['whatsapp_number' => $request->whatsapp_number, 'status' => 'active'],
+                [
+                    'session_id' => uniqid('session_'),
+                    'cart_items' => $request->items,
+                    'last_activity' => now(),
+                ]
             );
 
-            // Mark session as completed
-            $session = WhatsappSession::where('whatsapp_number', $request->whatsapp_number)
-                ->where('status', 'active')
-                ->first();
-
-            if ($session) {
-                $session->update(['status' => 'completed']);
-            }
+            // Generate a temporary order ID for frontend reference
+            $tempOrderId = 'TEMP_' . time() . '_' . substr(md5($request->whatsapp_number), 0, 6);
 
             return response()->json([
                 'success' => true,
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'message' => 'Order created successfully',
+                'order_id' => $tempOrderId,
+                'order_number' => $tempOrderId,
+                'message' => 'Cart items saved successfully',
+                'session_id' => $session->session_id,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error creating order from WhatsApp: ' . $e->getMessage());
+            Log::error('Error creating WhatsApp session: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error creating order',
+                'message' => 'Error saving cart items',
             ], 500);
         }
     }

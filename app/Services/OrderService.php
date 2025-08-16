@@ -137,9 +137,9 @@ class OrderService
                 'whatsapp_number' => $whatsappNumber,
                 'customer_name' => 'Customer', // Will be updated on frontend
                 'delivery_address' => '', // Will be set on frontend
-                'delivery_latitude' => null,
-                'delivery_longitude' => null,
-                'market_id' => null, // Will be selected on frontend
+                'delivery_latitude' => 0, // Will be updated on frontend
+                'delivery_longitude' => 0, // Will be updated on frontend
+                'market_id' => 1, // Use default market, will be updated on frontend
                 'subtotal' => 0,
                 'delivery_fee' => 0,
                 'total_amount' => 0,

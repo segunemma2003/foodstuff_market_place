@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use App\Models\WhatsappSession; // Added this import
 
 class OrderController extends Controller
 {
@@ -68,28 +69,94 @@ class OrderController extends Controller
     /**
      * Get just the items for an order
      */
-    public function getItems(Order $order): JsonResponse
+    public function getItems($orderId): JsonResponse
     {
-        $items = $order->orderItems()->with('product')->get();
+        try {
+            // Check if it's a temporary WhatsApp order ID
+            if (str_starts_with($orderId, 'TEMP_')) {
+                // Extract WhatsApp number from temp order ID
+                $parts = explode('_', $orderId);
+                if (count($parts) >= 3) {
+                    $whatsappHash = $parts[2];
 
-        return response()->json([
-            'success' => true,
-            'data' => $items->map(function ($item) {
-                return [
-                    'id' => $item->id,
-                    'product_name' => $item->product_name,
-                    'quantity' => $item->quantity,
-                    'unit_price' => $item->unit_price,
-                    'total_price' => $item->total_price,
-                    'product' => [
-                        'id' => $item->product->id,
-                        'name' => $item->product->name,
-                        'unit' => $item->product->unit,
-                        'description' => $item->product->description,
-                    ],
-                ];
-            }),
-        ]);
+                    // Find WhatsApp session by hash
+                    $session = WhatsappSession::where('status', 'active')
+                        ->get()
+                        ->filter(function($session) use ($whatsappHash) {
+                            return substr(md5($session->whatsapp_number), 0, 6) === $whatsappHash;
+                        })
+                        ->first();
+
+                    if ($session && $session->cart_items) {
+                        return response()->json([
+                            'success' => true,
+                            'data' => collect($session->cart_items)->map(function ($item, $index) {
+                                return [
+                                    'id' => $index + 1,
+                                    'product_name' => $item['name'],
+                                    'quantity' => $item['quantity'],
+                                    'unit_price' => 0, // Will be set when market is selected
+                                    'total_price' => 0, // Will be calculated when market is selected
+                                    'notes' => $item['notes'] ?? null,
+                                    'product' => [
+                                        'id' => null,
+                                        'name' => $item['name'],
+                                        'unit' => 'piece',
+                                        'description' => 'Item from WhatsApp cart',
+                                    ],
+                                ];
+                            }),
+                            'is_whatsapp_session' => true,
+                            'session_id' => $session->session_id,
+                        ]);
+                    }
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'WhatsApp session not found',
+                ], 404);
+            }
+
+            // Try to find real order
+            $order = Order::find($orderId);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found',
+                ], 404);
+            }
+
+            $items = $order->orderItems()->with('product')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $items->map(function ($item) {
+                    return [
+                        'id' => $item->id,
+                        'product_name' => $item->product_name,
+                        'quantity' => $item->quantity,
+                        'unit_price' => $item->unit_price,
+                        'total_price' => $item->total_price,
+                        'product' => [
+                            'id' => $item->product->id,
+                            'name' => $item->product->name,
+                            'unit' => $item->product->unit,
+                            'description' => $item->product->description,
+                        ],
+                    ];
+                }),
+                'is_whatsapp_session' => false,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting order items: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving order items',
+            ], 500);
+        }
     }
 
     public function store(Request $request): JsonResponse
@@ -125,51 +192,128 @@ class OrderController extends Controller
         }
     }
 
-    public function show(Order $order): JsonResponse
+    public function show($orderId): JsonResponse
     {
-        $order->load(['orderItems.product', 'market', 'agent']);
+        try {
+            // Check if it's a temporary WhatsApp order ID
+            if (str_starts_with($orderId, 'TEMP_')) {
+                // Extract WhatsApp number from temp order ID
+                $parts = explode('_', $orderId);
+                if (count($parts) >= 3) {
+                    $whatsappHash = $parts[2];
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'status' => $order->status,
-                'customer_name' => $order->customer_name,
-                'delivery_address' => $order->delivery_address,
-                'delivery_latitude' => $order->delivery_latitude,
-                'delivery_longitude' => $order->delivery_longitude,
-                'subtotal' => $order->subtotal,
-                'delivery_fee' => $order->delivery_fee,
-                'total_amount' => $order->total_amount,
-                'market' => $order->market ? [
-                    'id' => $order->market->id,
-                    'name' => $order->market->name,
-                    'address' => $order->market->address,
-                ] : null,
-                'agent' => $order->agent ? [
-                    'id' => $order->agent->id,
-                    'name' => $order->agent->full_name,
-                    'phone' => $order->agent->phone,
-                ] : null,
-                'items' => $order->orderItems->map(function ($item) {
-                    return [
-                        'id' => $item->id,
-                        'product_name' => $item->product_name,
-                        'quantity' => $item->quantity,
-                        'unit_price' => $item->unit_price,
-                        'total_price' => $item->total_price,
-                        'product' => [
-                            'id' => $item->product->id,
-                            'name' => $item->product->name,
-                            'unit' => $item->product->unit,
-                        ],
-                    ];
-                }),
-                'created_at' => $order->created_at,
-                'updated_at' => $order->updated_at,
-            ],
-        ]);
+                    // Find WhatsApp session by hash
+                    $session = WhatsappSession::where('status', 'active')
+                        ->get()
+                        ->filter(function($session) use ($whatsappHash) {
+                            return substr(md5($session->whatsapp_number), 0, 6) === $whatsappHash;
+                        })
+                        ->first();
+
+                    if ($session && $session->cart_items) {
+                        return response()->json([
+                            'success' => true,
+                            'data' => [
+                                'id' => $orderId,
+                                'order_number' => $orderId,
+                                'status' => 'pending',
+                                'customer_name' => 'WhatsApp Customer',
+                                'delivery_address' => 'To be provided',
+                                'delivery_latitude' => null,
+                                'delivery_longitude' => null,
+                                'subtotal' => 0,
+                                'delivery_fee' => 0,
+                                'total_amount' => 0,
+                                'market' => null,
+                                'agent' => null,
+                                'items' => collect($session->cart_items)->map(function ($item, $index) {
+                                    return [
+                                        'id' => $index + 1,
+                                        'product_name' => $item['name'],
+                                        'quantity' => $item['quantity'],
+                                        'unit_price' => 0,
+                                        'total_price' => 0,
+                                        'notes' => $item['notes'] ?? null,
+                                        'product' => [
+                                            'id' => null,
+                                            'name' => $item['name'],
+                                            'unit' => 'piece',
+                                        ],
+                                    ];
+                                }),
+                                'created_at' => $session->created_at,
+                                'is_whatsapp_session' => true,
+                                'session_id' => $session->session_id,
+                            ],
+                        ]);
+                    }
+                }
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'WhatsApp session not found',
+                ], 404);
+            }
+
+            // Try to find real order
+            $order = Order::with(['orderItems.product', 'market', 'agent'])->find($orderId);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'status' => $order->status,
+                    'customer_name' => $order->customer_name,
+                    'delivery_address' => $order->delivery_address,
+                    'delivery_latitude' => $order->delivery_latitude,
+                    'delivery_longitude' => $order->delivery_longitude,
+                    'subtotal' => $order->subtotal,
+                    'delivery_fee' => $order->delivery_fee,
+                    'total_amount' => $order->total_amount,
+                    'market' => $order->market ? [
+                        'id' => $order->market->id,
+                        'name' => $order->market->name,
+                        'address' => $order->market->address,
+                    ] : null,
+                    'agent' => $order->agent ? [
+                        'id' => $order->agent->id,
+                        'name' => $order->agent->full_name,
+                        'phone' => $order->agent->phone,
+                    ] : null,
+                    'items' => $order->orderItems->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'product_name' => $item->product_name,
+                            'quantity' => $item->quantity,
+                            'unit_price' => $item->unit_price,
+                            'total_price' => $item->total_price,
+                            'product' => [
+                                'id' => $item->product->id,
+                                'name' => $item->product->name,
+                                'unit' => $item->product->unit,
+                            ],
+                        ];
+                    }),
+                    'created_at' => $order->created_at,
+                    'is_whatsapp_session' => false,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting order: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error retrieving order',
+            ], 500);
+        }
     }
 
     public function getCartPrices(Request $request): JsonResponse
