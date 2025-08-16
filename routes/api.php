@@ -146,6 +146,7 @@ Route::prefix('v1')->group(function () {
 
         // Product management
         Route::get('/products', [AgentController::class, 'getProducts']);
+        Route::get('/products/all', [AgentController::class, 'getAllProducts']); // Get all available products for dropdown
         Route::post('/products', [AgentController::class, 'addProduct']);
         Route::put('/products/{marketProduct}', [AgentController::class, 'updateProduct']);
         Route::delete('/products/{marketProduct}', [AgentController::class, 'removeProduct']);

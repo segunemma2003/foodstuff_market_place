@@ -324,6 +324,36 @@ class AgentController extends Controller
         ]);
     }
 
+    public function getAllProducts(): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        // Get all products that the agent hasn't added to their inventory yet
+        $existingProductIds = MarketProduct::where('market_id', $agent->market_id)
+            ->where('agent_id', $agent->id)
+            ->pluck('product_id');
+
+        $products = \App\Models\Product::with('category')
+            ->whereNotIn('id', $existingProductIds)
+            ->where('is_active', true)
+            ->get()
+            ->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'description' => $product->description,
+                    'unit' => $product->unit,
+                    'category' => $product->category->name,
+                    'category_id' => $product->category_id,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $products,
+        ]);
+    }
+
     public function addProduct(Request $request): JsonResponse
     {
         $agent = $this->getCurrentAgent();
