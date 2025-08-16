@@ -570,9 +570,17 @@ class OrderController extends Controller
      */
     public function getMarketProductPrices(Request $request): JsonResponse
     {
-        $request->validate([
-            'market_id' => 'required|exists:markets,id',
-        ]);
+        try {
+            $request->validate([
+                'market_id' => 'required|exists:markets,id',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        }
 
         try {
             $marketProducts = MarketProduct::with(['product.category', 'productPrices', 'agent'])
@@ -623,7 +631,6 @@ class OrderController extends Controller
                 'success' => false,
                 'message' => 'Failed to get market product prices',
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ], 500);
         }
     }
