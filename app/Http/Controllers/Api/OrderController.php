@@ -290,4 +290,109 @@ class OrderController extends Controller
             ], 400);
         }
     }
+
+    /**
+     * Get order status and send WhatsApp notification
+     */
+    public function getOrderStatus(Request $request, string $orderNumber): JsonResponse
+    {
+        $request->validate([
+            'whatsapp_number' => 'required|string',
+        ]);
+
+        $order = Order::where('order_number', $orderNumber)
+            ->where('whatsapp_number', $request->whatsapp_number)
+            ->with(['market', 'agent'])
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found',
+            ], 404);
+        }
+
+        // Send WhatsApp notification about status
+        try {
+            $this->sendWhatsAppStatusUpdate($order);
+        } catch (\Exception $e) {
+            \Log::error('Failed to send WhatsApp status update: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'order' => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'status' => $order->status,
+                'customer_name' => $order->customer_name,
+                'whatsapp_number' => $order->whatsapp_number,
+                'delivery_address' => $order->delivery_address,
+                'total_amount' => $order->total_amount,
+                'market' => $order->market ? [
+                    'id' => $order->market->id,
+                    'name' => $order->market->name,
+                    'address' => $order->market->address,
+                ] : null,
+                'agent' => $order->agent ? [
+                    'id' => $order->agent->id,
+                    'name' => $order->agent->full_name,
+                    'phone' => $order->agent->phone,
+                ] : null,
+                'created_at' => $order->created_at,
+                'updated_at' => $order->updated_at,
+            ],
+        ]);
+    }
+
+    /**
+     * Send WhatsApp status update
+     */
+    private function sendWhatsAppStatusUpdate(Order $order): void
+    {
+        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
+
+        $statusMessages = [
+            'pending' => 'Your order is being processed.',
+            'confirmed' => 'Your order has been confirmed!',
+            'paid' => 'Payment received! Your order is being prepared.',
+            'assigned' => 'An agent has been assigned to your order.',
+            'preparing' => 'Your order is being prepared in the kitchen.',
+            'ready_for_delivery' => 'Your order is ready for delivery!',
+            'out_for_delivery' => 'Your order is on its way to you!',
+            'delivered' => 'Your order has been delivered! Enjoy your meal!',
+            'cancelled' => 'Your order has been cancelled.',
+            'failed' => 'There was an issue with your order.',
+            'completed' => 'Your order has been completed successfully!',
+        ];
+
+        $message = $statusMessages[$order->status] ?? 'Your order status has been updated.';
+
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'message' => $message,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $response = \Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                \Log::info('WhatsApp status update sent successfully', [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                ]);
+            } else {
+                \Log::error('Failed to send WhatsApp status update', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
+        }
+    }
 }

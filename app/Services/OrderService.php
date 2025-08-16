@@ -223,102 +223,59 @@ class OrderService
                 $earning->markAsPaid('auto_payment_' . $order->id);
             }
 
-            // Mark WhatsApp session as completed
+            // Complete WhatsApp session
             $this->completeWhatsAppSession($order->whatsapp_number);
         }
     }
 
+    /**
+     * Send WhatsApp status notification
+     */
     private function sendStatusNotification(Order $order, string $status, string $message = ''): void
     {
-        $agentName = $order->agent ? $order->agent->full_name : 'Our team';
-        $agentPhone = $order->agent ? $order->agent->phone : '';
+        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
 
-        switch ($status) {
-            case 'pending':
-                $this->whatsAppService->sendOrderStatusUpdate(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    'Pending',
-                    'Your order has been created and is awaiting payment confirmation.'
-                );
-                break;
+        $statusMessages = [
+            'pending' => 'Your order is being processed.',
+            'confirmed' => 'Your order has been confirmed!',
+            'paid' => 'Payment received! Your order is being prepared.',
+            'assigned' => 'An agent has been assigned to your order.',
+            'preparing' => 'Your order is being prepared in the kitchen.',
+            'ready_for_delivery' => 'Your order is ready for delivery!',
+            'out_for_delivery' => 'Your order is on its way to you!',
+            'delivered' => 'Your order has been delivered! Enjoy your meal!',
+            'cancelled' => 'Your order has been cancelled.',
+            'failed' => 'There was an issue with your order.',
+            'completed' => 'Your order has been completed successfully!',
+        ];
 
-            case 'paid':
-                $this->whatsAppService->sendPaymentSuccess(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $order->total_amount
-                );
-                break;
+        $notificationMessage = $message ?: ($statusMessages[$status] ?? 'Your order status has been updated.');
 
-            case 'assigned':
-                $this->whatsAppService->sendAgentAssignment(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName,
-                    $agentPhone
-                );
-                break;
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $status,
+            'message' => $notificationMessage,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
 
-            case 'preparing':
-                $this->whatsAppService->sendOrderPreparing(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName,
-                    '30 minutes'
-                );
-                break;
+        // Send to WhatsApp bot
+        try {
+            $response = \Http::post($whatsappBotUrl . '/order-status-update', $data);
 
-            case 'ready_for_delivery':
-                $this->whatsAppService->sendOrderReady(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName
-                );
-                break;
-
-            case 'out_for_delivery':
-                $this->whatsAppService->sendOrderOutForDelivery(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName,
-                    $agentPhone
-                );
-                break;
-
-            case 'delivered':
-                $this->whatsAppService->sendOrderDelivered(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName
-                );
-                break;
-
-            case 'completed':
-                $this->whatsAppService->sendOrderDelivered(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $agentName
-                );
-                break;
-
-            case 'cancelled':
-                $this->whatsAppService->sendOrderCancelled(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    $message
-                );
-                break;
-
-            default:
-                // Generic status update for other statuses
-                $this->whatsAppService->sendOrderStatusUpdate(
-                    $order->whatsapp_number,
-                    $order->order_number,
-                    ucfirst($status),
-                    $message
-                );
-                break;
+            if ($response->successful()) {
+                Log::info('WhatsApp status notification sent successfully', [
+                    'order_id' => $order->id,
+                    'status' => $status,
+                ]);
+            } else {
+                Log::error('Failed to send WhatsApp status notification', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending WhatsApp status notification: ' . $e->getMessage());
         }
     }
 
