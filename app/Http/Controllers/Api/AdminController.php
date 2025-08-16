@@ -375,6 +375,114 @@ class AdminController extends Controller
         ]);
     }
 
+    public function showAgent(Agent $agent): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $agent->id,
+                'name' => $agent->full_name,
+                'email' => $agent->email,
+                'phone' => $agent->phone,
+                'market' => $agent->market ? $agent->market->name : null,
+                'market_id' => $agent->market_id,
+                'bank_name' => $agent->bank_name,
+                'account_name' => $agent->account_name,
+                'bank_verified' => $agent->bank_verified,
+                'is_active' => $agent->is_active,
+                'is_suspended' => $agent->is_suspended,
+                'last_login_at' => $agent->last_login_at,
+                'created_at' => $agent->created_at,
+            ],
+        ]);
+    }
+
+    public function updateAgent(Request $request, Agent $agent): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'sometimes|required|exists:markets,id',
+            'first_name' => 'sometimes|required|string|max:255',
+            'last_name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|email|unique:agents,email,' . $agent->id,
+            'phone' => 'sometimes|required|string|max:20',
+            'bank_code' => 'sometimes|required|string',
+            'bank_name' => 'sometimes|required|string',
+            'account_number' => 'sometimes|required|string|min:10|max:10',
+            'account_name' => 'sometimes|required|string',
+        ]);
+
+        // If bank details are being updated, verify them
+        if ($request->has('bank_code') && $request->has('account_number') && $request->has('account_name')) {
+            $verificationResult = $this->paystackService->verifyAccountNumber(
+                $request->account_number,
+                $request->bank_code
+            );
+
+            if (!$verificationResult['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bank account verification failed',
+                    'error' => $verificationResult['message'],
+                ], 422);
+            }
+
+            // Verify that the account name matches
+            $verifiedAccountName = $verificationResult['data']['account_name'] ?? '';
+            if (strtolower(trim($verifiedAccountName)) !== strtolower(trim($request->account_name))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Account name does not match the verified account name',
+                    'error' => 'Expected: ' . $verifiedAccountName . ', Provided: ' . $request->account_name,
+                ], 422);
+            }
+
+            $request->merge(['bank_verified' => true]);
+        }
+
+        $agent->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent updated successfully',
+            'data' => [
+                'id' => $agent->id,
+                'name' => $agent->full_name,
+                'email' => $agent->email,
+                'phone' => $agent->phone,
+                'market' => $agent->market ? $agent->market->name : null,
+                'bank_name' => $agent->bank_name,
+                'account_name' => $agent->account_name,
+                'bank_verified' => $agent->bank_verified,
+            ],
+        ]);
+    }
+
+    public function destroyAgent(Agent $agent): JsonResponse
+    {
+        // Check if agent has active orders
+        $activeOrders = $agent->orders()->whereIn('status', [
+            'assigned',
+            'preparing',
+            'ready_for_delivery',
+            'out_for_delivery'
+        ])->count();
+
+        if ($activeOrders > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete agent with active orders',
+                'error' => 'Agent has ' . $activeOrders . ' active orders',
+            ], 422);
+        }
+
+        $agent->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent deleted successfully',
+        ]);
+    }
+
     // Product Management
     public function getProducts(): JsonResponse
     {

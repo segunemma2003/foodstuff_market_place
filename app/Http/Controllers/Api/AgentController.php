@@ -7,6 +7,7 @@ use App\Models\Agent;
 use App\Models\Order;
 use App\Models\MarketProduct;
 use App\Models\AgentEarning;
+use App\Models\Commission;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;

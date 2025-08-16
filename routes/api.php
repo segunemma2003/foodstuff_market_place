@@ -84,6 +84,9 @@ Route::prefix('v1')->group(function () {
         // Agent management
         Route::get('/agents', [AdminController::class, 'getAgents']);
         Route::post('/agents', [AdminController::class, 'createAgent']);
+        Route::get('/agents/{agent}', [AdminController::class, 'showAgent']);
+        Route::put('/agents/{agent}', [AdminController::class, 'updateAgent']);
+        Route::delete('/agents/{agent}', [AdminController::class, 'destroyAgent']);
         Route::put('/agents/{agent}/suspend', [AdminController::class, 'suspendAgent']);
         Route::put('/agents/{agent}/activate', [AdminController::class, 'activateAgent']);
         Route::put('/agents/{agent}/reset-password', [AdminController::class, 'resetAgentPassword']);
