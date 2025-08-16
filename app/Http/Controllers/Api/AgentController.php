@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class AgentController extends Controller
 {
@@ -473,6 +474,14 @@ class AgentController extends Controller
     public function addProduct(Request $request): JsonResponse
     {
         $agent = $this->getCurrentAgent();
+
+        // Debug: Log the incoming request data
+        Log::info('Agent addProduct request data:', [
+            'all_data' => $request->all(),
+            'prices' => $request->input('prices'),
+            'prices_type' => gettype($request->input('prices')),
+            'content_type' => $request->header('Content-Type'),
+        ]);
 
         $request->validate([
             'product_id' => 'required|exists:products,id',
