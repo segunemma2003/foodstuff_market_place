@@ -177,7 +177,7 @@ class OrderController extends Controller
         $request->validate([
             'market_id' => 'required|exists:markets,id',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.product_name' => 'required|string|max:255', // Changed from product_id to product_name
             'items.*.measurement_scale' => 'required|string|max:50',
         ]);
 
@@ -187,18 +187,14 @@ class OrderController extends Controller
             $pricedItems = [];
 
             foreach ($items as $item) {
-                // Find the market product
-                $marketProduct = MarketProduct::with(['product.category', 'productPrices', 'agent'])
-                    ->where('market_id', $marketId)
-                    ->where('product_id', $item['product_id'])
-                    ->where('is_available', true)
-                    ->first();
+                // Use fuzzy matching to find the market product
+                $marketProduct = $this->findProductByFuzzyMatch($marketId, $item['product_name']);
 
                 if (!$marketProduct) {
                     return response()->json([
                         'success' => false,
-                        'message' => "Product not available in selected market",
-                        'product_id' => $item['product_id'],
+                        'message' => "Product '{$item['product_name']}' not found in selected market",
+                        'product_name' => $item['product_name'],
                     ], 400);
                 }
 
@@ -212,13 +208,13 @@ class OrderController extends Controller
                     return response()->json([
                         'success' => false,
                         'message' => "Measurement scale '{$item['measurement_scale']}' not available for this product",
-                        'product_id' => $item['product_id'],
+                        'product_name' => $item['product_name'],
                         'measurement_scale' => $item['measurement_scale'],
                     ], 400);
                 }
 
                 $pricedItems[] = [
-                    'product_id' => $item['product_id'],
+                    'product_id' => $marketProduct->product_id,
                     'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
                     'base_product_name' => $marketProduct->product->name,
                     'category' => $marketProduct->product->category->name,
@@ -229,6 +225,7 @@ class OrderController extends Controller
                     'agent_id' => $marketProduct->agent_id,
                     'stock_available' => $productPrice->stock_quantity,
                     'is_available' => $productPrice->is_available,
+                    'matched_product_name' => $marketProduct->product_name ?? $marketProduct->product->name, // Show what was matched
                 ];
             }
 
@@ -248,6 +245,161 @@ class OrderController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Find product by fuzzy matching with 80% similarity threshold
+     */
+    private function findProductByFuzzyMatch(int $marketId, string $searchProductName): ?MarketProduct
+    {
+        // Get all market products for this market
+        $marketProducts = MarketProduct::with(['product.category', 'productPrices', 'agent'])
+            ->where('market_id', $marketId)
+            ->where('is_available', true)
+            ->get();
+
+        $bestMatch = null;
+        $bestSimilarity = 0;
+        $threshold = 0.8; // 80% similarity threshold
+
+        foreach ($marketProducts as $marketProduct) {
+            // Check both product_name (custom name) and base product name
+            $productNames = [
+                $marketProduct->product_name,
+                $marketProduct->product->name
+            ];
+
+            foreach ($productNames as $productName) {
+                if (!$productName) continue;
+
+                $similarity = $this->calculateSimilarity($searchProductName, $productName);
+
+                if ($similarity > $bestSimilarity && $similarity >= $threshold) {
+                    $bestSimilarity = $similarity;
+                    $bestMatch = $marketProduct;
+                }
+            }
+        }
+
+        return $bestMatch;
+    }
+
+    /**
+     * Calculate similarity between two strings using multiple algorithms
+     */
+    private function calculateSimilarity(string $str1, string $str2): float
+    {
+        // Normalize strings for comparison
+        $str1 = strtolower(trim($str1));
+        $str2 = strtolower(trim($str2));
+
+        // If exact match, return 1.0
+        if ($str1 === $str2) {
+            return 1.0;
+        }
+
+        // Calculate different similarity metrics
+        $levenshtein = levenshtein($str1, $str2);
+        $maxLength = max(strlen($str1), strlen($str2));
+        $levenshteinSimilarity = $maxLength > 0 ? (1 - ($levenshtein / $maxLength)) : 0;
+
+        // Calculate Jaro-Winkler similarity
+        $jaroSimilarity = $this->jaroWinklerSimilarity($str1, $str2);
+
+        // Calculate substring similarity
+        $substringSimilarity = $this->substringSimilarity($str1, $str2);
+
+        // Weighted average of different similarity measures
+        $weightedSimilarity = ($levenshteinSimilarity * 0.4) + ($jaroSimilarity * 0.4) + ($substringSimilarity * 0.2);
+
+        return $weightedSimilarity;
+    }
+
+    /**
+     * Calculate Jaro-Winkler similarity
+     */
+    private function jaroWinklerSimilarity(string $str1, string $str2): float
+    {
+        if (empty($str1) || empty($str2)) {
+            return 0.0;
+        }
+
+        $matchWindow = (int) (max(strlen($str1), strlen($str2)) / 2) - 1;
+        if ($matchWindow < 0) $matchWindow = 0;
+
+        $str1Matches = array_fill(0, strlen($str1), false);
+        $str2Matches = array_fill(0, strlen($str2), false);
+
+        $matches = 0;
+        $transpositions = 0;
+
+        // Find matches
+        for ($i = 0; $i < strlen($str1); $i++) {
+            $start = max(0, $i - $matchWindow);
+            $end = min(strlen($str2), $i + $matchWindow + 1);
+
+            for ($j = $start; $j < $end; $j++) {
+                if ($str2Matches[$j] || $str1[$i] !== $str2[$j]) {
+                    continue;
+                }
+                $str1Matches[$i] = true;
+                $str2Matches[$j] = true;
+                $matches++;
+                break;
+            }
+        }
+
+        if ($matches === 0) {
+            return 0.0;
+        }
+
+        // Find transpositions
+        $k = 0;
+        for ($i = 0; $i < strlen($str1); $i++) {
+            if (!$str1Matches[$i]) {
+                continue;
+            }
+            while (!$str2Matches[$k]) {
+                $k++;
+            }
+            if ($str1[$i] !== $str2[$k]) {
+                $transpositions++;
+            }
+            $k++;
+        }
+
+        $jaro = (($matches / strlen($str1)) + ($matches / strlen($str2)) + (($matches - $transpositions / 2) / $matches)) / 3;
+
+        // Winkler modification
+        $prefix = 0;
+        $maxPrefix = min(4, min(strlen($str1), strlen($str2)));
+        for ($i = 0; $i < $maxPrefix; $i++) {
+            if ($str1[$i] === $str2[$i]) {
+                $prefix++;
+            } else {
+                break;
+            }
+        }
+
+        return $jaro + (0.1 * $prefix * (1 - $jaro));
+    }
+
+    /**
+     * Calculate substring similarity
+     */
+    private function substringSimilarity(string $str1, string $str2): float
+    {
+        $words1 = preg_split('/\s+/', $str1);
+        $words2 = preg_split('/\s+/', $str2);
+
+        $commonWords = array_intersect($words1, $words2);
+        $totalWords = array_unique(array_merge($words1, $words2));
+
+        if (empty($totalWords)) {
+            return 0.0;
+        }
+
+        return count($commonWords) / count($totalWords);
     }
 
     /**
@@ -315,10 +467,9 @@ class OrderController extends Controller
     {
         $request->validate([
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.product_name' => 'required|string|max:255', // Changed from product_id to product_name
             'items.*.quantity' => 'required|numeric|min:0.01', // Allow decimal quantities
             'items.*.unit_price' => 'required|numeric|min:0',
-            'items.*.product_name' => 'required|string|max:255',
             'items.*.measurement_scale' => 'required|string|max:50', // Add measurement scale
         ]);
 
@@ -329,9 +480,20 @@ class OrderController extends Controller
             // Add new items
             $subtotal = 0;
             foreach ($request->items as $item) {
+                // Use fuzzy matching to find the market product
+                $marketProduct = $this->findProductByFuzzyMatch($order->market_id, $item['product_name']);
+
+                if (!$marketProduct) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Product '{$item['product_name']}' not found in market",
+                        'product_name' => $item['product_name'],
+                    ], 400);
+                }
+
                 $orderItem = $order->orderItems()->create([
-                    'product_id' => $item['product_id'],
-                    'product_name' => $item['product_name'],
+                    'product_id' => $marketProduct->product_id,
+                    'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
                     'measurement_scale' => $item['measurement_scale'], // Store measurement scale
