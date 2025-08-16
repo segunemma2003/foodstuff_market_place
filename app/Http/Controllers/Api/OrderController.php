@@ -11,6 +11,7 @@ use App\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class OrderController extends Controller
 {
@@ -169,6 +170,96 @@ class OrderController extends Controller
                 'updated_at' => $order->updated_at,
             ],
         ]);
+    }
+
+    public function calculateCartPrices(Request $request): JsonResponse
+    {
+        $request->validate([
+            'market_id' => 'required|exists:markets,id',
+            'items' => 'required|array|min:1',
+            'items.*.product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.measurement_scale' => 'required|string|max:50',
+        ]);
+
+        try {
+            $marketId = $request->market_id;
+            $items = $request->items;
+            $calculatedItems = [];
+            $subtotal = 0;
+
+            foreach ($items as $item) {
+                // Find the market product with the specific measurement scale
+                $marketProduct = MarketProduct::with(['product.category', 'productPrices', 'agent'])
+                    ->where('market_id', $marketId)
+                    ->where('product_id', $item['product_id'])
+                    ->where('is_available', true)
+                    ->first();
+
+                if (!$marketProduct) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Product not available in selected market",
+                        'product_id' => $item['product_id'],
+                    ], 400);
+                }
+
+                // Find the specific price for the measurement scale
+                $productPrice = $marketProduct->productPrices()
+                    ->where('measurement_scale', $item['measurement_scale'])
+                    ->where('is_available', true)
+                    ->first();
+
+                if (!$productPrice) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Measurement scale '{$item['measurement_scale']}' not available for this product",
+                        'product_id' => $item['product_id'],
+                        'measurement_scale' => $item['measurement_scale'],
+                    ], 400);
+                }
+
+                $unitPrice = $productPrice->price;
+                $totalPrice = $item['quantity'] * $unitPrice;
+                $subtotal += $totalPrice;
+
+                $calculatedItems[] = [
+                    'product_id' => $item['product_id'],
+                    'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                    'base_product_name' => $marketProduct->product->name,
+                    'category' => $marketProduct->product->category->name,
+                    'measurement_scale' => $item['measurement_scale'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $unitPrice,
+                    'total_price' => $totalPrice,
+                    'agent_name' => $marketProduct->agent->full_name,
+                    'agent_id' => $marketProduct->agent_id,
+                    'stock_available' => $productPrice->stock_quantity,
+                ];
+            }
+
+            // Calculate delivery fee (you can customize this logic)
+            $deliveryFee = 500.0; // Default delivery fee - you might want to calculate based on coordinates
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'market_id' => $marketId,
+                    'items' => $calculatedItems,
+                    'subtotal' => $subtotal,
+                    'delivery_fee' => $deliveryFee,
+                    'total_amount' => $subtotal + $deliveryFee,
+                    'item_count' => count($calculatedItems),
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to calculate prices',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function updateItems(Request $request, Order $order): JsonResponse
