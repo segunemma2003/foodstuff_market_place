@@ -16,14 +16,12 @@ class MarketProduct extends Model
         'product_id',
         'product_name',
         'agent_id',
-        'price',
         'stock_quantity',
         'measurement_scale',
         'is_available',
     ];
 
     protected $casts = [
-        'price' => 'decimal:2',
         'is_available' => 'boolean',
     ];
 
