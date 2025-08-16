@@ -331,7 +331,7 @@ class AgentController extends Controller
         $request->validate([
             'product_id' => 'required|exists:products,id',
             'price' => 'required|numeric|min:0',
-            'stock_quantity' => 'required|integer|min:0',
+            'stock_quantity' => 'nullable|integer|min:0',
         ]);
 
         // Check if product already exists for this agent
@@ -352,7 +352,7 @@ class AgentController extends Controller
             'product_id' => $request->product_id,
             'agent_id' => $agent->id,
             'price' => $request->price,
-            'stock_quantity' => $request->stock_quantity,
+            'stock_quantity' => $request->stock_quantity ?? null,
             'is_available' => true,
         ]);
 
@@ -375,7 +375,7 @@ class AgentController extends Controller
 
         $request->validate([
             'price' => 'sometimes|required|numeric|min:0',
-            'stock_quantity' => 'sometimes|required|integer|min:0',
+            'stock_quantity' => 'sometimes|nullable|integer|min:0',
             'is_available' => 'sometimes|boolean',
         ]);
 
