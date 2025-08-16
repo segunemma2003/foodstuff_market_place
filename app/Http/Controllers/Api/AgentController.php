@@ -504,12 +504,51 @@ class AgentController extends Controller
             if ($request->hasFile('image')) {
                 try {
                     $image = $request->file('image');
+
+                    // Validate image
+                    if (!$image->isValid()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Invalid image file',
+                        ], 400);
+                    }
+
                     $imageName = time() . '_' . $image->getClientOriginalName();
                     $imagePath = 'products/' . $imageName;
 
-                    // Upload to S3
-                    $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
-                    $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
+                    // Try S3 first, fallback to local storage
+                    try {
+                        // Check if S3 is configured
+                        if (config('filesystems.disks.s3.key') && config('filesystems.disks.s3.secret')) {
+                            // Upload to S3
+                            $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName);
+
+                            if ($uploadedPath) {
+                                $imageUrl = config('filesystems.disks.s3.url') . '/' . $uploadedPath;
+                            }
+                        }
+                    } catch (\Exception $s3Error) {
+                        // S3 failed, try local storage
+                        try {
+                            $uploadedPath = Storage::disk('public')->putFileAs('products', $image, $imageName);
+                            if ($uploadedPath) {
+                                $imageUrl = url('storage/' . $uploadedPath);
+                            }
+                        } catch (\Exception $localError) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Failed to upload image to both S3 and local storage',
+                            ], 500);
+                        }
+                    }
+
+                    if (!$imageUrl) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Failed to upload image',
+                        ], 500);
+                    }
+
                 } catch (\Exception $e) {
                     return response()->json([
                         'success' => false,
