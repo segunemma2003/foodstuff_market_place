@@ -667,9 +667,21 @@ class OrderController extends Controller
             $shorter = strlen($str1) < strlen($str2) ? $str1 : $str2;
             $longer = strlen($str1) >= strlen($str2) ? $str1 : $str2;
 
-            // If the shorter string is at least 3 characters and represents at least 60% of the longer string
-            if (strlen($shorter) >= 3 && (strlen($shorter) / strlen($longer)) >= 0.6) {
-                return 0.9; // High similarity for contained matches
+            // If the shorter string is at least 3 characters and represents at least 50% of the longer string
+            if (strlen($shorter) >= 3 && (strlen($shorter) / strlen($longer)) >= 0.5) {
+                return 0.95; // Very high similarity for contained matches
+            }
+        }
+
+        // Check for word-level containment (e.g., "Add rice" contains word "rice")
+        $words1 = preg_split('/\s+/', $str1);
+        $words2 = preg_split('/\s+/', $str2);
+
+        $commonWords = array_intersect($words1, $words2);
+        if (!empty($commonWords)) {
+            $longestCommonWord = max(array_map('strlen', $commonWords));
+            if ($longestCommonWord >= 3) {
+                return 0.9; // High similarity for word matches
             }
         }
 
