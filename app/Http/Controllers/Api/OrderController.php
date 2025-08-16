@@ -191,11 +191,15 @@ class OrderController extends Controller
                 $marketProduct = $this->findProductByFuzzyMatch($marketId, $item['product_name']);
 
                 if (!$marketProduct) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Product '{$item['product_name']}' not found in selected market",
+                    // Product not found - add as unavailable
+                    $pricedItems[] = [
                         'product_name' => $item['product_name'],
-                    ], 400);
+                        'measurement_scale' => $item['measurement_scale'],
+                        'is_available' => false,
+                        'availability_status' => 'product_not_found',
+                        'message' => "Product '{$item['product_name']}' not found in selected market",
+                    ];
+                    continue;
                 }
 
                 // Find the specific price for the measurement scale
@@ -205,14 +209,26 @@ class OrderController extends Controller
                     ->first();
 
                 if (!$productPrice) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Measurement scale '{$item['measurement_scale']}' not available for this product",
-                        'product_name' => $item['product_name'],
+                    // Product found but measurement scale not available - add as unavailable
+                    $pricedItems[] = [
+                        'product_id' => $marketProduct->product_id,
+                        'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                        'base_product_name' => $marketProduct->product->name,
+                        'category' => $marketProduct->product->category->name,
+                        'image' => $marketProduct->product->image,
                         'measurement_scale' => $item['measurement_scale'],
-                    ], 400);
+                        'is_available' => false,
+                        'availability_status' => 'measurement_scale_not_available',
+                        'message' => "Measurement scale '{$item['measurement_scale']}' not available for this product",
+                        'available_measurement_scales' => $marketProduct->productPrices()
+                            ->where('is_available', true)
+                            ->pluck('measurement_scale')
+                            ->toArray(),
+                    ];
+                    continue;
                 }
 
+                // Product and measurement scale are available
                 $pricedItems[] = [
                     'product_id' => $marketProduct->product_id,
                     'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
@@ -224,7 +240,8 @@ class OrderController extends Controller
                     'agent_name' => $marketProduct->agent->full_name,
                     'agent_id' => $marketProduct->agent_id,
                     'stock_available' => $productPrice->stock_quantity,
-                    'is_available' => $productPrice->is_available,
+                    'is_available' => true,
+                    'availability_status' => 'available',
                     'matched_product_name' => $marketProduct->product_name ?? $marketProduct->product->name, // Show what was matched
                 ];
             }
@@ -235,6 +252,8 @@ class OrderController extends Controller
                     'market_id' => $marketId,
                     'items' => $pricedItems,
                     'item_count' => count($pricedItems),
+                    'available_count' => collect($pricedItems)->where('is_available', true)->count(),
+                    'unavailable_count' => collect($pricedItems)->where('is_available', false)->count(),
                 ],
             ]);
 
@@ -479,18 +498,46 @@ class OrderController extends Controller
 
             // Add new items
             $subtotal = 0;
+            $availableItems = [];
+            $unavailableItems = [];
+
             foreach ($request->items as $item) {
                 // Use fuzzy matching to find the market product
                 $marketProduct = $this->findProductByFuzzyMatch($order->market_id, $item['product_name']);
 
                 if (!$marketProduct) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Product '{$item['product_name']}' not found in market",
+                    // Product not found - add to unavailable items
+                    $unavailableItems[] = [
                         'product_name' => $item['product_name'],
-                    ], 400);
+                        'measurement_scale' => $item['measurement_scale'],
+                        'reason' => 'product_not_found',
+                        'message' => "Product '{$item['product_name']}' not found in market",
+                    ];
+                    continue;
                 }
 
+                // Check if the measurement scale is available
+                $productPrice = $marketProduct->productPrices()
+                    ->where('measurement_scale', $item['measurement_scale'])
+                    ->where('is_available', true)
+                    ->first();
+
+                if (!$productPrice) {
+                    // Product found but measurement scale not available
+                    $unavailableItems[] = [
+                        'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                        'measurement_scale' => $item['measurement_scale'],
+                        'reason' => 'measurement_scale_not_available',
+                        'message' => "Measurement scale '{$item['measurement_scale']}' not available for this product",
+                        'available_measurement_scales' => $marketProduct->productPrices()
+                            ->where('is_available', true)
+                            ->pluck('measurement_scale')
+                            ->toArray(),
+                    ];
+                    continue;
+                }
+
+                // Product and measurement scale are available - add to order
                 $orderItem = $order->orderItems()->create([
                     'product_id' => $marketProduct->product_id,
                     'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
@@ -501,6 +548,7 @@ class OrderController extends Controller
                 ]);
 
                 $subtotal += $orderItem->total_price;
+                $availableItems[] = $orderItem;
             }
 
             // Update order totals
@@ -520,7 +568,10 @@ class OrderController extends Controller
                     'subtotal' => $subtotal,
                     'delivery_fee' => $deliveryFee,
                     'total_amount' => $totalAmount,
-                    'items_count' => count($request->items),
+                    'available_items_count' => count($availableItems),
+                    'unavailable_items_count' => count($unavailableItems),
+                    'available_items' => $availableItems,
+                    'unavailable_items' => $unavailableItems,
                 ],
             ]);
         } catch (\Exception $e) {
