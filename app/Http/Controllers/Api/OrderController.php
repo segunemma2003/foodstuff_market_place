@@ -601,7 +601,14 @@ class OrderController extends Controller
 
         $bestMatch = null;
         $bestSimilarity = 0;
-        $threshold = 0.8; // 80% similarity threshold
+        $threshold = 0.7; // Lowered from 0.8 to 0.7 for better matching
+
+        // Debug: Log the search
+        Log::info('Fuzzy matching search:', [
+            'search_product_name' => $searchProductName,
+            'market_id' => $marketId,
+            'available_products_count' => $marketProducts->count(),
+        ]);
 
         foreach ($marketProducts as $marketProduct) {
             // Check both product_name (custom name) and base product name
@@ -615,12 +622,28 @@ class OrderController extends Controller
 
                 $similarity = $this->calculateSimilarity($searchProductName, $productName);
 
+                // Debug: Log each comparison
+                Log::info('Product comparison:', [
+                    'search' => $searchProductName,
+                    'database' => $productName,
+                    'similarity' => $similarity,
+                    'threshold' => $threshold,
+                    'is_match' => $similarity >= $threshold,
+                ]);
+
                 if ($similarity > $bestSimilarity && $similarity >= $threshold) {
                     $bestSimilarity = $similarity;
                     $bestMatch = $marketProduct;
                 }
             }
         }
+
+        // Debug: Log the result
+        Log::info('Fuzzy matching result:', [
+            'search_product_name' => $searchProductName,
+            'best_match' => $bestMatch ? ($bestMatch->product_name ?? $bestMatch->product->name) : 'none',
+            'best_similarity' => $bestSimilarity,
+        ]);
 
         return $bestMatch;
     }
@@ -637,6 +660,17 @@ class OrderController extends Controller
         // If exact match, return 1.0
         if ($str1 === $str2) {
             return 1.0;
+        }
+
+        // Check if one string contains the other (for cases like "Add rice" vs "rice")
+        if (str_contains($str1, $str2) || str_contains($str2, $str1)) {
+            $shorter = strlen($str1) < strlen($str2) ? $str1 : $str2;
+            $longer = strlen($str1) >= strlen($str2) ? $str1 : $str2;
+
+            // If the shorter string is at least 3 characters and represents at least 60% of the longer string
+            if (strlen($shorter) >= 3 && (strlen($shorter) / strlen($longer)) >= 0.6) {
+                return 0.9; // High similarity for contained matches
+            }
         }
 
         // Calculate different similarity metrics
