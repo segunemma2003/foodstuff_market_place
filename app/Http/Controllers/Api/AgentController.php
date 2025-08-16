@@ -794,6 +794,30 @@ class AgentController extends Controller
         ]);
     }
 
+    /**
+     * Test image upload endpoint for debugging
+     */
+    public function testImageUpload(Request $request): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'has_file' => $request->hasFile('image'),
+                    'all_data' => $request->all(),
+                    'files' => $request->allFiles(),
+                    'content_type' => $request->header('Content-Type'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ], 500);
+        }
+    }
+
     private function getCurrentAgent(): Agent
     {
         // Extract agent ID from bearer token

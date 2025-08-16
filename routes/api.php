@@ -158,6 +158,9 @@ Route::prefix('v1')->group(function () {
         Route::put('/product-prices/{productPrice}', [AgentController::class, 'updateProductPrice']);
         Route::delete('/product-prices/{productPrice}', [AgentController::class, 'removeProductPrice']);
 
+        // Test endpoint for debugging
+        Route::post('/test-image-upload', [AgentController::class, 'testImageUpload']);
+
         // Profile management
         Route::get('/profile', [AgentController::class, 'getProfile']);
         Route::put('/profile', [AgentController::class, 'updateProfile']);
