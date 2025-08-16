@@ -70,7 +70,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/stats/performance', [StatsController::class, 'performanceMetrics']);
 
     // Admin APIs (protected)
-    Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    Route::middleware(['admin'])->prefix('admin')->group(function () {
         Route::get('/dashboard', [AdminController::class, 'dashboard']);
 
         // Market management
@@ -126,10 +126,15 @@ Route::prefix('v1')->group(function () {
         // System settings
         Route::get('/settings', [AdminController::class, 'getSettings']);
         Route::put('/settings', [AdminController::class, 'updateSettings']);
+
+        // Bank management
+        Route::get('/banks', [AdminController::class, 'getBanks']);
+        Route::post('/verify-bank-account', [AdminController::class, 'verifyBankAccount']);
+        Route::get('/bank-details', [AdminController::class, 'getBankDetails']);
     });
 
     // Agent APIs (protected)
-    Route::middleware(['auth:sanctum', 'agent'])->prefix('agent')->group(function () {
+    Route::middleware(['agent'])->prefix('agent')->group(function () {
         Route::get('/dashboard', [AgentController::class, 'dashboard']);
         Route::get('/orders', [AgentController::class, 'getOrders']);
         Route::get('/orders/search', [AgentController::class, 'searchOrders']); // Agent order search
@@ -156,4 +161,7 @@ Route::prefix('v1')->group(function () {
     // Authentication routes
     Route::post('/admin/login', [AdminController::class, 'login']);
     Route::post('/agent/login', [AgentController::class, 'login']);
+
+    // Health check route
+    Route::get('/admin/health', [AdminController::class, 'healthCheck']);
 });

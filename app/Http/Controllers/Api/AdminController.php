@@ -8,19 +8,54 @@ use App\Models\Agent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Category;
-use App\Models\Commission;
 use App\Models\MarketProduct;
 use App\Services\PaymentService;
+use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
     public function __construct(
-        private PaymentService $paymentService
+        private PaymentService $paymentService,
+        private PaystackService $paystackService
     ) {}
+
+    public function healthCheck(): JsonResponse
+    {
+        try {
+            // Test database connection
+            DB::connection()->getPdo();
+
+            // Test basic queries
+            $marketCount = Market::count();
+            $agentCount = Agent::count();
+            $orderCount = Order::count();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Database connection successful',
+                'data' => [
+                    'database_connected' => true,
+                    'markets_count' => $marketCount,
+                    'agents_count' => $agentCount,
+                    'orders_count' => $orderCount,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Health check error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Database connection failed',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
 
     public function login(Request $request): JsonResponse
     {
@@ -54,40 +89,53 @@ class AdminController extends Controller
 
     public function dashboard(): JsonResponse
     {
-        $stats = [
-            'total_markets' => Market::count(),
-            'total_agents' => Agent::count(),
-            'total_orders' => Order::count(),
-            'pending_orders' => Order::where('status', 'pending')->count(),
-            'paid_orders' => Order::where('status', 'paid')->count(),
-            'delivered_orders' => Order::where('status', 'delivered')->count(),
-            'total_revenue' => Order::where('status', 'paid')->sum('total_amount'),
-        ];
+        try {
+            // Check if database connection is working
+            DB::connection()->getPdo();
 
-        $recentOrders = Order::with(['market', 'agent'])
-            ->latest()
-            ->take(10)
-            ->get()
-            ->map(function ($order) {
-                return [
-                    'id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'customer_name' => $order->customer_name,
-                    'total_amount' => $order->total_amount,
-                    'status' => $order->status,
-                    'market' => $order->market ? $order->market->name : null,
-                    'agent' => $order->agent ? $order->agent->full_name : null,
-                    'created_at' => $order->created_at,
-                ];
-            });
+            $stats = [
+                'total_markets' => Market::count(),
+                'total_agents' => Agent::count(),
+                'total_orders' => Order::count(),
+                'pending_orders' => Order::where('status', 'pending')->count(),
+                'paid_orders' => Order::where('status', 'paid')->count(),
+                'delivered_orders' => Order::where('status', 'delivered')->count(),
+                'total_revenue' => Order::where('status', 'paid')->sum('total_amount'),
+            ];
 
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'stats' => $stats,
-                'recent_orders' => $recentOrders,
-            ],
-        ]);
+            $recentOrders = Order::with(['market', 'agent'])
+                ->latest()
+                ->take(10)
+                ->get()
+                ->map(function ($order) {
+                    return [
+                        'id' => $order->id,
+                        'order_number' => $order->order_number,
+                        'customer_name' => $order->customer_name,
+                        'total_amount' => $order->total_amount,
+                        'status' => $order->status,
+                        'market' => $order->market ? $order->market->name : null,
+                        'agent' => $order->agent ? $order->agent->full_name : null,
+                        'created_at' => $order->created_at,
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'stats' => $stats,
+                    'recent_orders' => $recentOrders,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Admin dashboard error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Database connection error. Please check your database configuration.',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     // Market Management
@@ -113,12 +161,22 @@ class AdminController extends Controller
 
     public function getMarkets(): JsonResponse
     {
-        $markets = Market::all();
+        try {
+            $markets = Market::all();
 
-        return response()->json([
-            'success' => true,
-            'data' => $markets,
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $markets,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get markets error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch markets',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     public function show(Market $market): JsonResponse
@@ -181,7 +239,35 @@ class AdminController extends Controller
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:agents,email',
             'phone' => 'required|string|max:20',
+            'bank_code' => 'required|string',
+            'bank_name' => 'required|string',
+            'account_number' => 'required|string|min:10|max:10',
+            'account_name' => 'required|string',
         ]);
+
+        // Verify bank account with Paystack
+        $verificationResult = $this->paystackService->verifyAccountNumber(
+            $request->account_number,
+            $request->bank_code
+        );
+
+        if (!$verificationResult['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bank account verification failed',
+                'error' => $verificationResult['message'],
+            ], 422);
+        }
+
+        // Verify that the account name matches
+        $verifiedAccountName = $verificationResult['data']['account_name'] ?? '';
+        if (strtolower(trim($verifiedAccountName)) !== strtolower(trim($request->account_name))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Account name does not match the verified account name',
+                'error' => 'Expected: ' . $verifiedAccountName . ', Provided: ' . $request->account_name,
+            ], 422);
+        }
 
         $password = strtolower($request->first_name); // Default password
 
@@ -192,6 +278,11 @@ class AdminController extends Controller
             'email' => $request->email,
             'phone' => $request->phone,
             'password' => Hash::make($password),
+            'bank_code' => $request->bank_code,
+            'bank_name' => $request->bank_name,
+            'account_number' => $request->account_number,
+            'account_name' => $request->account_name,
+            'bank_verified' => true,
         ]);
 
         // Send welcome email with credentials
@@ -205,6 +296,9 @@ class AdminController extends Controller
                 'email' => $agent->email,
                 'phone' => $agent->phone,
                 'market' => $agent->market->name,
+                'bank_name' => $agent->bank_name,
+                'account_name' => $agent->account_name,
+                'bank_verified' => $agent->bank_verified,
                 'default_password' => $password,
             ],
         ], 201);
@@ -212,26 +306,39 @@ class AdminController extends Controller
 
     public function getAgents(): JsonResponse
     {
-        $agents = Agent::with(['market'])
-            ->get()
-            ->map(function ($agent) {
-                return [
-                    'id' => $agent->id,
-                    'name' => $agent->full_name,
-                    'email' => $agent->email,
-                    'phone' => $agent->phone,
-                    'market' => $agent->market->name,
-                    'is_active' => $agent->is_active,
-                    'is_suspended' => $agent->is_suspended,
-                    'last_login_at' => $agent->last_login_at,
-                    'created_at' => $agent->created_at,
-                ];
-            });
+        try {
+            $agents = Agent::with(['market'])
+                ->get()
+                ->map(function ($agent) {
+                    return [
+                        'id' => $agent->id,
+                        'name' => $agent->full_name,
+                        'email' => $agent->email,
+                        'phone' => $agent->phone,
+                        'market' => $agent->market ? $agent->market->name : null,
+                        'bank_name' => $agent->bank_name,
+                        'account_name' => $agent->account_name,
+                        'bank_verified' => $agent->bank_verified,
+                        'is_active' => $agent->is_active,
+                        'is_suspended' => $agent->is_suspended,
+                        'last_login_at' => $agent->last_login_at,
+                        'created_at' => $agent->created_at,
+                    ];
+                });
 
-        return response()->json([
-            'success' => true,
-            'data' => $agents,
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $agents,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get agents error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch agents',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 
     public function suspendAgent(Agent $agent): JsonResponse
@@ -819,5 +926,77 @@ class AdminController extends Controller
             'success' => true,
             'message' => 'Logged out successfully',
         ]);
+    }
+
+    /**
+     * Get list of all banks from Paystack
+     */
+    public function getBanks(): JsonResponse
+    {
+        try {
+            $result = $this->paystackService->getBanks();
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            Log::error('Get banks error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve banks',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify bank account number
+     */
+    public function verifyBankAccount(Request $request): JsonResponse
+    {
+        $request->validate([
+            'account_number' => 'required|string|min:10|max:10',
+            'bank_code' => 'required|string',
+        ]);
+
+        try {
+            $result = $this->paystackService->verifyAccountNumber(
+                $request->account_number,
+                $request->bank_code
+            );
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            Log::error('Verify bank account error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to verify bank account',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get bank details by code
+     */
+    public function getBankDetails(Request $request): JsonResponse
+    {
+        $request->validate([
+            'bank_code' => 'required|string',
+        ]);
+
+        try {
+            $result = $this->paystackService->getBankByCode($request->bank_code);
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            Log::error('Get bank details error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve bank details',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+            ], 500);
+        }
     }
 }

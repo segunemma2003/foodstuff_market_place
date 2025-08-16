@@ -19,6 +19,11 @@ class Agent extends Model
         'email',
         'phone',
         'password',
+        'bank_code',
+        'bank_name',
+        'account_number',
+        'account_name',
+        'bank_verified',
         'is_active',
         'is_suspended',
         'last_login_at',
@@ -26,11 +31,13 @@ class Agent extends Model
 
     protected $hidden = [
         'password',
+        'account_number',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'is_suspended' => 'boolean',
+        'bank_verified' => 'boolean',
         'last_login_at' => 'datetime',
     ];
 
