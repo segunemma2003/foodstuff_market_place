@@ -300,7 +300,7 @@ class AgentController extends Controller
     {
         $agent = $this->getCurrentAgent();
 
-        $products = MarketProduct::with(['product.category'])
+        $products = MarketProduct::with(['product.category', 'productPrices'])
             ->where('market_id', $agent->market_id)
             ->where('agent_id', $agent->id)
             ->get()
@@ -308,13 +308,21 @@ class AgentController extends Controller
                 return [
                     'id' => $marketProduct->id,
                     'product_id' => $marketProduct->product_id,
-                    'name' => $marketProduct->product->name,
+                    'product_name' => $marketProduct->product_name,
+                    'base_product_name' => $marketProduct->product->name,
                     'description' => $marketProduct->product->description,
                     'unit' => $marketProduct->product->unit,
-                    'price' => $marketProduct->price,
-                    'stock_quantity' => $marketProduct->stock_quantity,
                     'is_available' => $marketProduct->is_available,
                     'category' => $marketProduct->product->category->name,
+                    'prices' => $marketProduct->productPrices->map(function ($price) {
+                        return [
+                            'id' => $price->id,
+                            'measurement_scale' => $price->measurement_scale,
+                            'price' => $price->price,
+                            'stock_quantity' => $price->stock_quantity,
+                            'is_available' => $price->is_available,
+                        ];
+                    }),
                 ];
             });
 
@@ -354,37 +362,134 @@ class AgentController extends Controller
         ]);
     }
 
+    public function getCategories(): JsonResponse
+    {
+        $categories = \App\Models\Category::where('is_active', true)
+            ->get()
+            ->map(function ($category) {
+                return [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'description' => $category->description,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $categories,
+        ]);
+    }
+
+    public function createProduct(Request $request): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'name' => 'required|string|max:255|unique:products,name',
+            'description' => 'nullable|string',
+            'unit' => 'required|string|max:50',
+            'product_name' => 'required|string|max:255', // Custom name for agent's inventory
+            'prices' => 'required|array|min:1',
+            'prices.*.measurement_scale' => 'required|string|max:50',
+            'prices.*.price' => 'required|numeric|min:0',
+            'prices.*.stock_quantity' => 'nullable|integer|min:0',
+        ]);
+
+        // Check if custom product name already exists for this agent in this market
+        $existingProduct = MarketProduct::where('market_id', $agent->market_id)
+            ->where('agent_id', $agent->id)
+            ->where('product_name', $request->product_name)
+            ->first();
+
+        if ($existingProduct) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product with this name already exists in your inventory',
+            ], 400);
+        }
+
+        // Create the new product
+        $product = \App\Models\Product::create([
+            'category_id' => $request->category_id,
+            'name' => $request->name,
+            'description' => $request->description,
+            'unit' => $request->unit,
+            'is_active' => true,
+        ]);
+
+        // Add the product to agent's inventory
+        $marketProduct = MarketProduct::create([
+            'market_id' => $agent->market_id,
+            'product_id' => $product->id,
+            'product_name' => $request->product_name,
+            'agent_id' => $agent->id,
+            'is_available' => true,
+        ]);
+
+        // Create product prices for different measurement scales
+        foreach ($request->prices as $priceData) {
+            $marketProduct->productPrices()->create([
+                'measurement_scale' => $priceData['measurement_scale'],
+                'price' => $priceData['price'],
+                'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                'is_available' => true,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product created and added to inventory successfully',
+            'data' => [
+                'product' => $product->load('category'),
+                'market_product' => $marketProduct->load(['productPrices', 'product.category']),
+            ],
+        ], 201);
+    }
+
     public function addProduct(Request $request): JsonResponse
     {
         $agent = $this->getCurrentAgent();
 
         $request->validate([
             'product_id' => 'required|exists:products,id',
-            'price' => 'required|numeric|min:0',
-            'stock_quantity' => 'nullable|integer|min:0',
+            'product_name' => 'required|string|max:255',
+            'prices' => 'required|array|min:1',
+            'prices.*.measurement_scale' => 'required|string|max:50',
+            'prices.*.price' => 'required|numeric|min:0',
+            'prices.*.stock_quantity' => 'nullable|integer|min:0',
         ]);
 
-        // Check if product already exists for this agent
+        // Check if product name already exists for this agent in this market
         $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-            ->where('product_id', $request->product_id)
             ->where('agent_id', $agent->id)
+            ->where('product_name', $request->product_name)
             ->first();
 
         if ($existingProduct) {
             return response()->json([
                 'success' => false,
-                'message' => 'Product already exists in your inventory',
+                'message' => 'Product with this name already exists in your inventory',
             ], 400);
         }
 
         $marketProduct = MarketProduct::create([
             'market_id' => $agent->market_id,
             'product_id' => $request->product_id,
+            'product_name' => $request->product_name,
             'agent_id' => $agent->id,
-            'price' => $request->price,
-            'stock_quantity' => $request->stock_quantity ?? null,
             'is_available' => true,
         ]);
+
+        // Create product prices for different measurement scales
+        foreach ($request->prices as $priceData) {
+            $marketProduct->productPrices()->create([
+                'measurement_scale' => $priceData['measurement_scale'],
+                'price' => $priceData['price'],
+                'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                'is_available' => true,
+            ]);
+        }
 
         return response()->json([
             'success' => true,
@@ -406,6 +511,7 @@ class AgentController extends Controller
         $request->validate([
             'price' => 'sometimes|required|numeric|min:0',
             'stock_quantity' => 'sometimes|nullable|integer|min:0',
+            'measurement_scale' => 'sometimes|nullable|string|max:50',
             'is_available' => 'sometimes|boolean',
         ]);
 
@@ -433,6 +539,92 @@ class AgentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Product removed successfully',
+        ]);
+    }
+
+    public function addProductPrice(Request $request, MarketProduct $marketProduct): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        if ($marketProduct->agent_id !== $agent->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found in your inventory',
+            ], 404);
+        }
+
+        $request->validate([
+            'measurement_scale' => 'required|string|max:50',
+            'price' => 'required|numeric|min:0',
+            'stock_quantity' => 'nullable|integer|min:0',
+        ]);
+
+        // Check if measurement scale already exists for this product
+        $existingPrice = $marketProduct->productPrices()
+            ->where('measurement_scale', $request->measurement_scale)
+            ->first();
+
+        if ($existingPrice) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Measurement scale already exists for this product',
+            ], 400);
+        }
+
+        $productPrice = $marketProduct->productPrices()->create([
+            'measurement_scale' => $request->measurement_scale,
+            'price' => $request->price,
+            'stock_quantity' => $request->stock_quantity ?? null,
+            'is_available' => true,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $productPrice,
+        ], 201);
+    }
+
+    public function updateProductPrice(Request $request, \App\Models\ProductPrice $productPrice): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        if ($productPrice->marketProduct->agent_id !== $agent->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product price not found in your inventory',
+            ], 404);
+        }
+
+        $request->validate([
+            'price' => 'sometimes|required|numeric|min:0',
+            'stock_quantity' => 'sometimes|nullable|integer|min:0',
+            'is_available' => 'sometimes|boolean',
+        ]);
+
+        $productPrice->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'data' => $productPrice,
+        ]);
+    }
+
+    public function removeProductPrice(\App\Models\ProductPrice $productPrice): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        if ($productPrice->marketProduct->agent_id !== $agent->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product price not found in your inventory',
+            ], 404);
+        }
+
+        $productPrice->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product price removed successfully',
         ]);
     }
 

@@ -520,23 +520,31 @@ class AdminController extends Controller
         ]);
 
         try {
-            $marketProducts = MarketProduct::with(['product.category', 'agent'])
+            $marketProducts = MarketProduct::with(['product.category', 'agent', 'productPrices'])
                 ->where('market_id', $request->market_id)
                 ->get()
                 ->map(function ($marketProduct) {
                     return [
                         'id' => $marketProduct->id,
                         'product_id' => $marketProduct->product_id,
-                        'product_name' => $marketProduct->product->name,
+                        'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                        'base_product_name' => $marketProduct->product->name,
                         'product_description' => $marketProduct->product->description,
                         'unit' => $marketProduct->product->unit,
                         'category' => $marketProduct->product->category->name,
                         'agent_name' => $marketProduct->agent->full_name,
                         'agent_id' => $marketProduct->agent_id,
-                        'price' => $marketProduct->price,
-                        'stock_quantity' => $marketProduct->stock_quantity,
                         'is_available' => $marketProduct->is_available,
                         'created_at' => $marketProduct->created_at,
+                        'prices' => $marketProduct->productPrices->map(function ($price) {
+                            return [
+                                'id' => $price->id,
+                                'measurement_scale' => $price->measurement_scale,
+                                'price' => $price->price,
+                                'stock_quantity' => $price->stock_quantity,
+                                'is_available' => $price->is_available,
+                            ];
+                        }),
                     ];
                 });
 
@@ -671,19 +679,27 @@ class AdminController extends Controller
     // Market Product Management (Admin can add products to any market)
     public function getMarketProducts(): JsonResponse
     {
-        $marketProducts = MarketProduct::with(['market', 'product.category', 'agent'])
+        $marketProducts = MarketProduct::with(['market', 'product.category', 'agent', 'productPrices'])
             ->get()
             ->map(function ($marketProduct) {
                 return [
                     'id' => $marketProduct->id,
                     'market' => $marketProduct->market->name,
-                    'product' => $marketProduct->product->name,
+                    'product_name' => $marketProduct->product_name ?? $marketProduct->product->name,
+                    'base_product_name' => $marketProduct->product->name,
                     'category' => $marketProduct->product->category->name,
                     'agent' => $marketProduct->agent->full_name,
-                    'price' => $marketProduct->price,
-                    'stock_quantity' => $marketProduct->stock_quantity,
                     'is_available' => $marketProduct->is_available,
                     'created_at' => $marketProduct->created_at,
+                    'prices' => $marketProduct->productPrices->map(function ($price) {
+                        return [
+                            'id' => $price->id,
+                            'measurement_scale' => $price->measurement_scale,
+                            'price' => $price->price,
+                            'stock_quantity' => $price->stock_quantity,
+                            'is_available' => $price->is_available,
+                        ];
+                    }),
                 ];
             });
 
@@ -698,38 +714,56 @@ class AdminController extends Controller
         $request->validate([
             'market_id' => 'required|exists:markets,id',
             'product_id' => 'required|exists:products,id',
+            'product_name' => 'required|string|max:255',
             'agent_id' => 'required|exists:agents,id',
-            'price' => 'required|numeric|min:0',
-            'stock_quantity' => 'required|integer|min:0',
+            'prices' => 'required|array|min:1',
+            'prices.*.measurement_scale' => 'required|string|max:50',
+            'prices.*.price' => 'required|numeric|min:0',
+            'prices.*.stock_quantity' => 'nullable|integer|min:0',
             'is_available' => 'boolean',
         ]);
 
-        // Check if product already exists for this market and agent
+        // Check if product name already exists for this agent in this market
         $existingProduct = MarketProduct::where('market_id', $request->market_id)
-            ->where('product_id', $request->product_id)
             ->where('agent_id', $request->agent_id)
+            ->where('product_name', $request->product_name)
             ->first();
 
         if ($existingProduct) {
             return response()->json([
                 'success' => false,
-                'message' => 'Product already exists for this market and agent',
+                'message' => 'Product with this name already exists for this agent in this market',
             ], 400);
         }
 
-        $marketProduct = MarketProduct::create($request->all());
+        $marketProduct = MarketProduct::create([
+            'market_id' => $request->market_id,
+            'product_id' => $request->product_id,
+            'product_name' => $request->product_name,
+            'agent_id' => $request->agent_id,
+            'is_available' => $request->is_available ?? true,
+        ]);
+
+        // Create product prices for different measurement scales
+        foreach ($request->prices as $priceData) {
+            $marketProduct->productPrices()->create([
+                'measurement_scale' => $priceData['measurement_scale'],
+                'price' => $priceData['price'],
+                'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                'is_available' => true,
+            ]);
+        }
 
         return response()->json([
             'success' => true,
-            'data' => $marketProduct->load(['market', 'product.category', 'agent']),
+            'data' => $marketProduct->load(['market', 'product.category', 'agent', 'productPrices']),
         ], 201);
     }
 
     public function updateMarketProduct(Request $request, MarketProduct $marketProduct): JsonResponse
     {
         $request->validate([
-            'price' => 'sometimes|required|numeric|min:0',
-            'stock_quantity' => 'sometimes|required|integer|min:0',
+            'product_name' => 'sometimes|required|string|max:255',
             'is_available' => 'boolean',
         ]);
 
@@ -737,7 +771,7 @@ class AdminController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $marketProduct->load(['market', 'product.category', 'agent']),
+            'data' => $marketProduct->load(['market', 'product.category', 'agent', 'productPrices']),
         ]);
     }
 

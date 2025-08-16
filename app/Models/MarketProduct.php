@@ -14,9 +14,11 @@ class MarketProduct extends Model
     protected $fillable = [
         'market_id',
         'product_id',
+        'product_name',
         'agent_id',
         'price',
         'stock_quantity',
+        'measurement_scale',
         'is_available',
     ];
 
@@ -43,5 +45,10 @@ class MarketProduct extends Model
     public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    public function productPrices(): HasMany
+    {
+        return $this->hasMany(ProductPrice::class);
     }
 }
