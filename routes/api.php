@@ -31,7 +31,6 @@ Route::prefix('v1')->group(function () {
 
     // Order Search and Management APIs
     Route::get('/orders/search', [OrderController::class, 'search']); // Search orders by order number
-    Route::get('/orders/{order}/items', [OrderController::class, 'getItems']); // Get just the items for an order
     Route::get('/orders/{order_number}/status', [OrderController::class, 'getOrderStatus']); // Get order status and send WhatsApp notification
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
@@ -180,6 +179,7 @@ Route::prefix('v1')->group(function () {
     // Order management
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/market-prices', [OrderController::class, 'getMarketProductPrices']);
+    Route::get('/orders/{order}/items', [OrderController::class, 'getItems']); // Get just the items for an order
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::post('/orders/calculate-prices', [OrderController::class, 'calculateCartPrices']);
     Route::post('/orders/get-prices', [OrderController::class, 'getCartPrices']);
