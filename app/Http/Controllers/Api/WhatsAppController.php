@@ -74,6 +74,50 @@ class WhatsAppController extends Controller
         }
     }
 
+
+
+    public function createOrder(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'whatsapp_number' => 'required|string',
+                'items' => 'required|array',
+                'items.*.name' => 'required|string',
+                'items.*.quantity' => 'required|string',
+                'items.*.notes' => 'nullable|string',
+            ]);
+
+            // Create order
+            $order = $this->orderService->createOrderFromWhatsApp(
+                $request->whatsapp_number,
+                $request->items
+            );
+
+            // Mark session as completed
+            $session = WhatsappSession::where('whatsapp_number', $request->whatsapp_number)
+                ->where('status', 'active')
+                ->first();
+
+            if ($session) {
+                $session->update(['status' => 'completed']);
+            }
+
+            return response()->json([
+                'success' => true,
+                'order_id' => $order->id,
+                'order_number' => $order->order_number,
+                'message' => 'Order created successfully',
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error creating order from WhatsApp: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error creating order',
+            ], 500);
+        }
+    }
+
     private function processMessage(string $phone, string $message, ?string $messageId = null): void
     {
         try {

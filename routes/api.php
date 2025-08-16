@@ -25,6 +25,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/whatsapp/webhook', [WhatsAppController::class, 'webhook']);
     Route::post('/whatsapp/send-message', [WhatsAppController::class, 'sendMessage']);
     Route::post('/whatsapp/process-message', [WhatsAppController::class, 'processMessage']);
+    Route::post('/whatsapp/create-order', [WhatsAppController::class, 'createOrder']);
     Route::get('/whatsapp/status', [WhatsAppController::class, 'getStatus']);
     Route::post('/whatsapp/initialize', [WhatsAppController::class, 'initialize']);
 

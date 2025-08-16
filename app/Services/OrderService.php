@@ -125,6 +125,48 @@ class OrderService
         return $order;
     }
 
+    public function createOrderFromWhatsApp(string $whatsappNumber, array $items): Order
+    {
+        return DB::transaction(function () use ($whatsappNumber, $items) {
+            // Generate order number
+            $orderNumber = 'FS' . date('Ymd') . Str::random(6);
+
+            // Create basic order (market and pricing will be set on frontend)
+            $order = Order::create([
+                'order_number' => $orderNumber,
+                'whatsapp_number' => $whatsappNumber,
+                'customer_name' => 'Customer', // Will be updated on frontend
+                'delivery_address' => '', // Will be set on frontend
+                'delivery_latitude' => null,
+                'delivery_longitude' => null,
+                'market_id' => null, // Will be selected on frontend
+                'subtotal' => 0,
+                'delivery_fee' => 0,
+                'total_amount' => 0,
+                'status' => 'pending',
+            ]);
+
+            // Add order items from WhatsApp
+            foreach ($items as $item) {
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => null, // Will be matched on frontend
+                    'market_product_id' => null,
+                    'product_name' => $item['name'],
+                    'unit_price' => 0, // Will be set on frontend
+                    'quantity' => $item['quantity'],
+                    'total_price' => 0, // Will be calculated on frontend
+                    'notes' => $item['notes'] ?? null,
+                ]);
+            }
+
+            // Log initial status
+            $order->updateStatus('pending', 'Order created from WhatsApp');
+
+            return $order;
+        });
+    }
+
     public function assignAgent(Order $order): ?Agent
     {
         if (!$order->canBeAssigned()) {
