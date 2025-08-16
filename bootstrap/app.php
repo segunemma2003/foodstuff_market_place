@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'agent' => \App\Http\Middleware\AgentMiddleware::class,
+            'cors' => \App\Http\Middleware\CorsMiddleware::class,
         ]);
 
         $middleware->web([
@@ -22,8 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->api([
-            // API middleware stack
+            \App\Http\Middleware\CorsMiddleware::class,
         ]);
+
+        // Apply CORS globally to all routes
+        $middleware->append(\App\Http\Middleware\CorsMiddleware::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
