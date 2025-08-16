@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class AgentController extends Controller
 {
@@ -311,6 +312,7 @@ class AgentController extends Controller
                     'product_name' => $marketProduct->product_name,
                     'base_product_name' => $marketProduct->product->name,
                     'description' => $marketProduct->product->description,
+                    'image' => $marketProduct->product->image,
                     'unit' => $marketProduct->product->unit,
                     'is_available' => $marketProduct->is_available,
                     'category' => $marketProduct->product->category->name,
@@ -390,6 +392,7 @@ class AgentController extends Controller
             'description' => 'nullable|string',
             'unit' => 'required|string|max:50',
             'product_name' => 'required|string|max:255', // Custom name for agent's inventory
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
             'prices' => 'required|array|min:1',
             'prices.*.measurement_scale' => 'required|string|max:50',
             'prices.*.price' => 'required|numeric|min:0',
@@ -409,11 +412,31 @@ class AgentController extends Controller
             ], 400);
         }
 
+        // Handle image upload
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            try {
+                $image = $request->file('image');
+                $imageName = time() . '_' . $image->getClientOriginalName();
+                $imagePath = 'products/' . $imageName;
+
+                // Upload to S3
+                $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
+                $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to upload image: ' . $e->getMessage(),
+                ], 400);
+            }
+        }
+
         // Create the new product
         $product = \App\Models\Product::create([
             'category_id' => $request->category_id,
             'name' => $request->name,
             'description' => $request->description,
+            'image' => $imageUrl,
             'unit' => $request->unit,
             'is_active' => true,
         ]);
@@ -454,6 +477,7 @@ class AgentController extends Controller
         $request->validate([
             'product_id' => 'required|exists:products,id',
             'product_name' => 'required|string|max:255',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
             'prices' => 'required|array|min:1',
             'prices.*.measurement_scale' => 'required|string|max:50',
             'prices.*.price' => 'required|numeric|min:0',
@@ -471,6 +495,30 @@ class AgentController extends Controller
                 'success' => false,
                 'message' => 'Product with this name already exists in your inventory',
             ], 400);
+        }
+
+        // Handle image upload if provided
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            try {
+                $image = $request->file('image');
+                $imageName = time() . '_' . $image->getClientOriginalName();
+                $imagePath = 'products/' . $imageName;
+
+                // Upload to S3
+                $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
+                $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to upload image: ' . $e->getMessage(),
+                ], 400);
+            }
+        }
+
+        // Update the product image if provided
+        if ($imageUrl) {
+            \App\Models\Product::where('id', $request->product_id)->update(['image' => $imageUrl]);
         }
 
         $marketProduct = MarketProduct::create([
