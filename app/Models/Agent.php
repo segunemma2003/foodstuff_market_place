@@ -61,6 +61,11 @@ class Agent extends Model
         return $this->hasMany(AgentEarning::class);
     }
 
+    public function commissions(): HasMany
+    {
+        return $this->hasMany(Commission::class);
+    }
+
     public function setPasswordAttribute($value)
     {
         $this->attributes['password'] = Hash::make($value);

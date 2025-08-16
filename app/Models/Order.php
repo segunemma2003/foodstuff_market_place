@@ -68,6 +68,11 @@ class Order extends Model
         return $this->hasMany(AgentEarning::class);
     }
 
+    public function commissions(): HasMany
+    {
+        return $this->hasMany(Commission::class);
+    }
+
     public function updateStatus(string $status, string $message = '', array $metadata = []): void
     {
         $this->update(['status' => $status]);
