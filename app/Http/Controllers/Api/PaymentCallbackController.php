@@ -94,9 +94,10 @@ class PaymentCallbackController extends Controller
                     'paid_at' => now(),
                 ]);
 
-                // Update session status
+                // Update session status and link order_id
                 $session->update([
                     'status' => 'paid',
+                    'order_id' => $order->id,
                     'last_activity' => now(),
                 ]);
 

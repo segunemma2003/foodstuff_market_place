@@ -562,15 +562,13 @@ class WhatsAppController extends Controller
 
                 \App\Models\OrderItem::insert($orderItems);
 
-                // Update session
+                // Update session - keep status active, order_id will be linked after payment
                 $session->update([
-                    'order_id' => $order->id,
-                    'status' => 'order_created',
                     'last_activity' => now(),
                 ]);
 
                 // Generate payment URL
-                $paymentUrl = $this->generatePaymentUrl($order);
+                $paymentUrl = $this->generatePaymentUrl($order, $session->section_id);
 
                 return response()->json([
                     'success' => true,
@@ -1006,7 +1004,7 @@ class WhatsAppController extends Controller
         return "{$minutes}m";
     }
 
-    private function generatePaymentUrl(Order $order): string
+    private function generatePaymentUrl(Order $order, string $sectionId): string
     {
         // Generate Paystack payment URL using PaymentService
         $paymentService = app(\App\Services\PaymentService::class);
@@ -1018,7 +1016,9 @@ class WhatsAppController extends Controller
             // . '/payment/callback',
             'metadata' => [
                 'order_id' => $order->id,
-                'section_id' => $order->whatsappSession->section_id ?? null,
+                'section_id' => $sectionId,
+                'website' => 'foodstuff-marketplace',
+                'platform' => 'whatsapp-bot',
             ],
         ]);
 
