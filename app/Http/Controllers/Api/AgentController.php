@@ -421,10 +421,53 @@ class AgentController extends Controller
                 $imageName = time() . '_' . $image->getClientOriginalName();
                 $imagePath = 'products/' . $imageName;
 
-                // Upload to S3
-                $imageUrl = Storage::disk('s3')->putFileAs('products', $image, $imageName);
-                $imageUrl = config('filesystems.disks.s3.url') . '/' . $imageUrl;
+                // Try S3 first, fallback to local storage
+                try {
+                    // Check if S3 is configured
+                    if (config('filesystems.default') === 's3' &&
+                        config('filesystems.disks.s3.key') &&
+                        config('filesystems.disks.s3.secret') &&
+                        config('filesystems.disks.s3.bucket')) {
+
+                        // Upload to S3
+                        $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName, 'public');
+
+                        if ($uploadedPath) {
+                            $imageUrl = config('filesystems.disks.s3.url') . '/' . $uploadedPath;
+                            Log::info('Image uploaded to S3 successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
+                        }
+                    } else {
+                        Log::warning('S3 not properly configured, falling back to local storage');
+                        throw new \Exception('S3 not configured');
+                    }
+                } catch (\Exception $s3Error) {
+                    Log::error('S3 upload failed', ['error' => $s3Error->getMessage()]);
+
+                    // S3 failed, try local storage
+                    try {
+                        $uploadedPath = Storage::disk('public')->putFileAs('products', $image, $imageName);
+                        if ($uploadedPath) {
+                            $imageUrl = url('storage/' . $uploadedPath);
+                            Log::info('Image uploaded to local storage successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
+                        }
+                    } catch (\Exception $localError) {
+                        Log::error('Local storage upload failed', ['error' => $localError->getMessage()]);
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Failed to upload image to both S3 and local storage: ' . $localError->getMessage(),
+                        ], 500);
+                    }
+                }
+
+                if (!$imageUrl) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Failed to upload image - no URL generated',
+                    ], 500);
+                }
+
             } catch (\Exception $e) {
+                Log::error('Image upload error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
                 return response()->json([
                     'success' => false,
                     'message' => 'Failed to upload image: ' . $e->getMessage(),
@@ -519,25 +562,37 @@ class AgentController extends Controller
                     // Try S3 first, fallback to local storage
                     try {
                         // Check if S3 is configured
-                        if (config('filesystems.disks.s3.key') && config('filesystems.disks.s3.secret')) {
+                        if (config('filesystems.default') === 's3' &&
+                            config('filesystems.disks.s3.key') &&
+                            config('filesystems.disks.s3.secret') &&
+                            config('filesystems.disks.s3.bucket')) {
+
                             // Upload to S3
-                            $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName);
+                            $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName, 'public');
 
                             if ($uploadedPath) {
                                 $imageUrl = config('filesystems.disks.s3.url') . '/' . $uploadedPath;
+                                Log::info('Image uploaded to S3 successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
                             }
+                        } else {
+                            Log::warning('S3 not properly configured, falling back to local storage');
+                            throw new \Exception('S3 not configured');
                         }
                     } catch (\Exception $s3Error) {
+                        Log::error('S3 upload failed', ['error' => $s3Error->getMessage()]);
+
                         // S3 failed, try local storage
                         try {
                             $uploadedPath = Storage::disk('public')->putFileAs('products', $image, $imageName);
                             if ($uploadedPath) {
                                 $imageUrl = url('storage/' . $uploadedPath);
+                                Log::info('Image uploaded to local storage successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
                             }
                         } catch (\Exception $localError) {
+                            Log::error('Local storage upload failed', ['error' => $localError->getMessage()]);
                             return response()->json([
                                 'success' => false,
-                                'message' => 'Failed to upload image to both S3 and local storage',
+                                'message' => 'Failed to upload image to both S3 and local storage: ' . $localError->getMessage(),
                             ], 500);
                         }
                     }
@@ -545,11 +600,12 @@ class AgentController extends Controller
                     if (!$imageUrl) {
                         return response()->json([
                             'success' => false,
-                            'message' => 'Failed to upload image',
+                            'message' => 'Failed to upload image - no URL generated',
                         ], 500);
                     }
 
                 } catch (\Exception $e) {
+                    Log::error('Image upload error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
                     return response()->json([
                         'success' => false,
                         'message' => 'Failed to upload image: ' . $e->getMessage(),
@@ -792,6 +848,72 @@ class AgentController extends Controller
             'success' => true,
             'message' => 'Password changed successfully',
         ]);
+    }
+
+    /**
+     * Test S3 connectivity and configuration
+     */
+    public function testS3Connection(): JsonResponse
+    {
+        try {
+            $s3Config = [
+                'default_disk' => config('filesystems.default'),
+                's3_key' => config('filesystems.disks.s3.key') ? 'SET' : 'NOT_SET',
+                's3_secret' => config('filesystems.disks.s3.secret') ? 'SET' : 'NOT_SET',
+                's3_bucket' => config('filesystems.disks.s3.bucket') ? 'SET' : 'NOT_SET',
+                's3_region' => config('filesystems.disks.s3.region') ? 'SET' : 'NOT_SET',
+                's3_url' => config('filesystems.disks.s3.url') ? 'SET' : 'NOT_SET',
+            ];
+
+            // Test S3 connection
+            $disk = Storage::disk('s3');
+            $testKey = 'test/connection-test-' . time() . '.txt';
+            $testContent = 'S3 Connection Test - ' . now();
+
+            // Try to upload a test file
+            $uploadResult = $disk->put($testKey, $testContent, 'public');
+
+            if ($uploadResult) {
+                // Try to get the file back
+                $downloadedContent = $disk->get($testKey);
+                $fileUrl = config('filesystems.disks.s3.url') . '/' . $testKey;
+
+                // Clean up
+                $disk->delete($testKey);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'S3 connection test successful',
+                    'data' => [
+                        'config' => $s3Config,
+                        'upload_result' => $uploadResult,
+                        'download_match' => $downloadedContent === $testContent,
+                        'file_url' => $fileUrl,
+                        'test_key' => $testKey,
+                    ],
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'S3 upload test failed',
+                    'data' => [
+                        'config' => $s3Config,
+                        'upload_result' => $uploadResult,
+                    ],
+                ], 500);
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'S3 connection test failed: ' . $e->getMessage(),
+                'data' => [
+                    'config' => $s3Config ?? [],
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ],
+            ], 500);
+        }
     }
 
     /**

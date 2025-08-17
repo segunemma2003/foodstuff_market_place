@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AgentController;
 use App\Http\Controllers\Api\GeolocationController;
 use App\Http\Controllers\Api\StatsController;
+use App\Http\Controllers\Api\PaymentCallbackController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,6 +29,17 @@ Route::prefix('v1')->group(function () {
     Route::post('/whatsapp/create-order', [WhatsAppController::class, 'createOrder']);
     Route::get('/whatsapp/status', [WhatsAppController::class, 'getStatus']);
     Route::post('/whatsapp/initialize', [WhatsAppController::class, 'initialize']);
+
+    // New WhatsApp Section-based API
+    Route::post('/whatsapp/create-section', [WhatsAppController::class, 'createSection']);
+    Route::post('/whatsapp/confirm-section', [WhatsAppController::class, 'confirmSection']);
+    Route::get('/whatsapp/section/{section_id}/status', [WhatsAppController::class, 'getSectionStatus']);
+    Route::post('/whatsapp/section/nearby-markets', [WhatsAppController::class, 'getNearbyMarkets']);
+    Route::post('/whatsapp/section/search-markets', [WhatsAppController::class, 'searchMarkets']);
+    Route::get('/whatsapp/section/market-products', [WhatsAppController::class, 'getMarketProducts']);
+    Route::post('/whatsapp/section/create-order', [WhatsAppController::class, 'createOrder']);
+    Route::get('/whatsapp/section/{section_id}/order-status', [WhatsAppController::class, 'getOrderStatus']);
+    Route::get('/whatsapp/user-orders', [WhatsAppController::class, 'getUserOrders']);
 
     // Order Search and Management APIs
     Route::get('/orders/search', [OrderController::class, 'search']); // Search orders by order number
@@ -53,6 +65,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
     Route::post('/payments/verify', [PaymentController::class, 'verify']);
     Route::post('/payments/callback', [PaymentController::class, 'callback']);
+
+    // Payment Callback APIs
+    Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+    Route::post('/order-status-update', [PaymentCallbackController::class, 'updateOrderStatus']);
 
     // Geolocation APIs
     Route::get('/geolocation/search', [GeolocationController::class, 'search']);
@@ -160,6 +176,7 @@ Route::prefix('v1')->group(function () {
 
         // Test endpoint for debugging
         Route::post('/test-image-upload', [AgentController::class, 'testImageUpload']);
+        Route::get('/test-s3-connection', [AgentController::class, 'testS3Connection']);
 
         // Profile management
         Route::get('/profile', [AgentController::class, 'getProfile']);

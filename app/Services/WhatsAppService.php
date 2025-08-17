@@ -145,21 +145,55 @@ class WhatsAppService
         return $this->sendMessage($phone, $message);
     }
 
-    public function sendPaymentSuccess(string $phone, string $orderNumber, float $amount): bool
+    public function sendPaymentSuccess(string $phone, string $orderNumber, float $amount, ?string $sectionId = null): bool
     {
         $message = "💳 *Payment Successful*\n\n" .
                    "Your payment for order #{$orderNumber} has been confirmed!\n\n" .
                    "💰 Amount: ₦" . number_format($amount, 2) . "\n\n" .
                    "Your order is now being processed. 🚀";
 
+        if ($sectionId) {
+            $trackUrl = config('app.frontend_url', 'https://marketplace.foodstuff.store') . "/track_order?section_id={$sectionId}";
+            $message .= "\n\n🔗 *Track your order:*\n{$trackUrl}";
+        }
+
         return $this->sendMessage($phone, $message);
     }
 
-    public function sendPaymentFailed(string $phone, string $orderNumber): bool
+    public function sendPaymentFailed(string $phone, string $orderNumber, ?string $sectionId = null): bool
     {
         $message = "❌ *Payment Failed*\n\n" .
                    "Your payment for order #{$orderNumber} was unsuccessful.\n\n" .
                    "Please try again or contact support for assistance. 📞";
+
+        if ($sectionId) {
+            $retryUrl = config('app.frontend_url', 'https://marketplace.foodstuff.store') . "?section_id={$sectionId}";
+            $message .= "\n\n🔗 *Retry payment:*\n{$retryUrl}";
+        }
+
+        return $this->sendMessage($phone, $message);
+    }
+
+    public function sendOrderTrackingInfo(string $phone, string $orderNumber, string $status, ?string $sectionId = null): bool
+    {
+        $statusMessages = [
+            'pending' => '⏳ *Order Pending*\n\nYour order is being processed.',
+            'confirmed' => '✅ *Order Confirmed*\n\nYour order has been confirmed!',
+            'paid' => '💰 *Payment Confirmed*\n\nPayment received! Order is being prepared.',
+            'assigned' => '👨‍💼 *Agent Assigned*\n\nA delivery agent has been assigned to your order.',
+            'preparing' => '👨‍🍳 *Preparing Order*\n\nYour order is being prepared in the kitchen.',
+            'ready_for_delivery' => '📦 *Ready for Delivery*\n\nYour order is ready and waiting for pickup.',
+            'out_for_delivery' => '🚚 *Out for Delivery*\n\nYour order is on its way to you!',
+            'delivered' => '🎉 *Order Delivered*\n\nYour order has been delivered successfully!',
+            'completed' => '🏁 *Order Completed*\n\nThank you for choosing FoodStuff Store!',
+        ];
+
+        $message = $statusMessages[$status] ?? "📋 *Order Update*\n\nOrder #{$orderNumber} status: " . ucfirst($status);
+
+        if ($sectionId) {
+            $trackUrl = config('app.frontend_url', 'https://marketplace.foodstuff.store') . "/track_order?section_id={$sectionId}";
+            $message .= "\n\n🔗 *Track your order:*\n{$trackUrl}";
+        }
 
         return $this->sendMessage($phone, $message);
     }
