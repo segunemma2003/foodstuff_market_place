@@ -40,7 +40,7 @@ try {
 // Send test message
 echo "=== Sending Test Message ===\n";
 
-$whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
+$whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
 $testMessage = "🧪 TEST MESSAGE: This is a test message from the admin system to verify WhatsApp bot functionality. Please ignore this message.";
 
 $data = [
