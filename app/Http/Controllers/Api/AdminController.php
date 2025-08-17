@@ -954,6 +954,46 @@ class AdminController extends Controller
     }
 
     /**
+     * Update agent permissions
+     */
+    public function updateAgentPermissions(Request $request, Agent $agent): JsonResponse
+    {
+        $request->validate([
+            'can_add_products' => 'sometimes|boolean',
+            'can_update_prices' => 'sometimes|boolean',
+        ]);
+
+        $agent->update($request->only(['can_add_products', 'can_update_prices']));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Agent permissions updated successfully',
+            'data' => [
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->full_name,
+                'can_add_products' => $agent->can_add_products,
+                'can_update_prices' => $agent->can_update_prices,
+            ],
+        ]);
+    }
+
+    /**
+     * Get agent permissions
+     */
+    public function getAgentPermissions(Agent $agent): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->full_name,
+                'can_add_products' => $agent->can_add_products,
+                'can_update_prices' => $agent->can_update_prices,
+            ],
+        ]);
+    }
+
+    /**
      * Switch agent to different market
      */
     public function switchAgentMarket(Request $request, Agent $agent): JsonResponse

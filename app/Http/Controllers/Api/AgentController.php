@@ -53,6 +53,8 @@ class AgentController extends Controller
                     'phone' => $agent->phone,
                     'market' => $agent->market->name,
                     'role' => 'agent',
+                    'can_add_products' => $agent->can_add_products,
+                    'can_update_prices' => $agent->can_update_prices,
                 ],
             ],
         ]);
@@ -385,139 +387,170 @@ class AgentController extends Controller
 
     public function createProduct(Request $request): JsonResponse
     {
-        $agent = $this->getCurrentAgent();
+        try {
+            $agent = $this->getCurrentAgent();
 
-        $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'name' => 'required|string|max:255|unique:products,name',
-            'description' => 'nullable|string',
-            'unit' => 'required|string|max:50',
-            'product_name' => 'required|string|max:255', // Custom name for agent's inventory
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
-            'prices' => 'required|array|min:1',
-            'prices.*.measurement_scale' => 'required|string|max:50',
-            'prices.*.price' => 'required|numeric|min:0',
-            'prices.*.stock_quantity' => 'nullable|integer|min:0',
-        ]);
-
-        // Check if custom product name already exists for this agent in this market
-        $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-            ->where('agent_id', $agent->id)
-            ->where('product_name', $request->product_name)
-            ->first();
-
-        if ($existingProduct) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Product with this name already exists in your inventory',
-            ], 400);
-        }
-
-        // Handle image upload
-        $imageUrl = null;
-        if ($request->hasFile('image')) {
-            try {
-                $image = $request->file('image');
-                $imageName = time() . '_' . $image->getClientOriginalName();
-                $imagePath = 'products/' . $imageName;
-
-                // Try S3 first, fallback to local storage
-                try {
-                    // Check if S3 is configured
-                    if (config('filesystems.default') === 's3' &&
-                        config('filesystems.disks.s3.key') &&
-                        config('filesystems.disks.s3.secret') &&
-                        config('filesystems.disks.s3.bucket')) {
-
-                        // Upload to S3
-                        $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName, 'public');
-
-                        if ($uploadedPath) {
-                            $imageUrl = config('filesystems.disks.s3.url') . '/' . $uploadedPath;
-                            Log::info('Image uploaded to S3 successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
-                        }
-                    } else {
-                        Log::warning('S3 not properly configured, falling back to local storage');
-                        throw new \Exception('S3 not configured');
-                    }
-                } catch (\Exception $s3Error) {
-                    Log::error('S3 upload failed', ['error' => $s3Error->getMessage()]);
-
-                    // S3 failed, try local storage
-                    try {
-                        $uploadedPath = Storage::disk('public')->putFileAs('products', $image, $imageName);
-                        if ($uploadedPath) {
-                            $imageUrl = url('storage/' . $uploadedPath);
-                            Log::info('Image uploaded to local storage successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
-                        }
-                    } catch (\Exception $localError) {
-                        Log::error('Local storage upload failed', ['error' => $localError->getMessage()]);
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Failed to upload image to both S3 and local storage: ' . $localError->getMessage(),
-                        ], 500);
-                    }
-                }
-
-                if (!$imageUrl) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Failed to upload image - no URL generated',
-                    ], 500);
-                }
-
-            } catch (\Exception $e) {
-                Log::error('Image upload error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            // Check if agent can add products
+            if (!$agent->can_add_products) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Failed to upload image: ' . $e->getMessage(),
+                    'message' => 'You do not have permission to add products. Please contact admin.',
+                ], 403);
+            }
+
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'description' => 'nullable|string',
+                'category_id' => 'required|exists:categories,id',
+                'unit' => 'required|string|max:50',
+                'product_name' => 'required|string|max:255',
+                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
+                'prices' => 'required|array|min:1',
+                'prices.*.measurement_scale' => 'required|string|max:50',
+                'prices.*.price' => 'required|numeric|min:0',
+                'prices.*.stock_quantity' => 'nullable|integer|min:0',
+            ]);
+
+            // Check if custom product name already exists for this agent in this market
+            $existingProduct = MarketProduct::where('market_id', $agent->market_id)
+                ->where('agent_id', $agent->id)
+                ->where('product_name', $request->product_name)
+                ->first();
+
+            if ($existingProduct) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product with this name already exists in your inventory',
                 ], 400);
             }
-        }
 
-        // Create the new product
-        $product = \App\Models\Product::create([
-            'category_id' => $request->category_id,
-            'name' => $request->name,
-            'description' => $request->description,
-            'image' => $imageUrl,
-            'unit' => $request->unit,
-            'is_active' => true,
-        ]);
+            // Handle image upload
+            $imageUrl = null;
+            if ($request->hasFile('image')) {
+                try {
+                    $image = $request->file('image');
+                    $imageName = time() . '_' . $image->getClientOriginalName();
+                    $imagePath = 'products/' . $imageName;
 
-        // Add the product to agent's inventory
-        $marketProduct = MarketProduct::create([
-            'market_id' => $agent->market_id,
-            'product_id' => $product->id,
-            'product_name' => $request->product_name,
-            'agent_id' => $agent->id,
-            'is_available' => true,
-        ]);
+                    // Try S3 first, fallback to local storage
+                    try {
+                        // Check if S3 is configured
+                        if (config('filesystems.default') === 's3' &&
+                            config('filesystems.disks.s3.key') &&
+                            config('filesystems.disks.s3.secret') &&
+                            config('filesystems.disks.s3.bucket')) {
 
-        // Create product prices for different measurement scales
-        foreach ($request->prices as $priceData) {
-            $marketProduct->productPrices()->create([
-                'measurement_scale' => $priceData['measurement_scale'],
-                'price' => $priceData['price'],
-                'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                            // Upload to S3
+                            $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName, 'public');
+
+                            if ($uploadedPath) {
+                                $imageUrl = config('filesystems.disks.s3.url') . '/' . $uploadedPath;
+                                Log::info('Image uploaded to S3 successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
+                            }
+                        } else {
+                            Log::warning('S3 not properly configured, falling back to local storage');
+                            throw new \Exception('S3 not configured');
+                        }
+                    } catch (\Exception $s3Error) {
+                        Log::error('S3 upload failed', ['error' => $s3Error->getMessage()]);
+
+                        // S3 failed, try local storage
+                        try {
+                            $uploadedPath = Storage::disk('public')->putFileAs('products', $image, $imageName);
+                            if ($uploadedPath) {
+                                $imageUrl = url('storage/' . $uploadedPath);
+                                Log::info('Image uploaded to local storage successfully', ['path' => $uploadedPath, 'url' => $imageUrl]);
+                            }
+                        } catch (\Exception $localError) {
+                            Log::error('Local storage upload failed', ['error' => $localError->getMessage()]);
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Failed to upload image to both S3 and local storage: ' . $localError->getMessage(),
+                            ], 500);
+                        }
+                    }
+
+                    if (!$imageUrl) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Failed to upload image - no URL generated',
+                        ], 500);
+                    }
+
+                } catch (\Exception $e) {
+                    Log::error('Image upload error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Failed to upload image: ' . $e->getMessage(),
+                    ], 400);
+                }
+            }
+
+            // Create the new product
+            $product = \App\Models\Product::create([
+                'category_id' => $request->category_id,
+                'name' => $request->name,
+                'description' => $request->description,
+                'image' => $imageUrl,
+                'unit' => $request->unit,
+                'is_active' => true,
+            ]);
+
+            // Add the product to agent's inventory
+            $marketProduct = MarketProduct::create([
+                'market_id' => $agent->market_id,
+                'product_id' => $product->id,
+                'product_name' => $request->product_name,
+                'agent_id' => $agent->id,
                 'is_available' => true,
             ]);
-        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Product created and added to inventory successfully',
-            'data' => [
-                'product' => $product->load('category'),
-                'market_product' => $marketProduct->load(['productPrices', 'product.category']),
-            ],
-        ], 201);
+            // Create product prices for different measurement scales
+            foreach ($request->prices as $priceData) {
+                $marketProduct->productPrices()->create([
+                    'measurement_scale' => $priceData['measurement_scale'],
+                    'price' => $priceData['price'],
+                    'stock_quantity' => $priceData['stock_quantity'] ?? null,
+                    'is_available' => true,
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product created and added to inventory successfully',
+                'data' => [
+                    'product' => $product->load('category'),
+                    'market_product' => $marketProduct->load(['productPrices', 'product.category']),
+                ],
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while adding the product',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function addProduct(Request $request): JsonResponse
     {
         try {
             $agent = $this->getCurrentAgent();
+
+            // Check if agent can add products
+            if (!$agent->can_add_products) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You do not have permission to add products. Please contact admin.',
+                ], 403);
+            }
 
             $request->validate([
                 'product_id' => 'required|exists:products,id',
@@ -705,6 +738,14 @@ class AgentController extends Controller
     {
         $agent = $this->getCurrentAgent();
 
+        // Check if agent can update prices
+        if (!$agent->can_update_prices) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to update prices. Please contact admin.',
+            ], 403);
+        }
+
         if ($marketProduct->agent_id !== $agent->id) {
             return response()->json([
                 'success' => false,
@@ -746,6 +787,14 @@ class AgentController extends Controller
     public function updateProductPrice(Request $request, \App\Models\ProductPrice $productPrice): JsonResponse
     {
         $agent = $this->getCurrentAgent();
+
+        // Check if agent can update prices
+        if (!$agent->can_update_prices) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to update prices. Please contact admin.',
+            ], 403);
+        }
 
         if ($productPrice->marketProduct->agent_id !== $agent->id) {
             return response()->json([

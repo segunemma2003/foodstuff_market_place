@@ -26,6 +26,8 @@ class Agent extends Model
         'bank_verified',
         'is_active',
         'is_suspended',
+        'can_add_products',
+        'can_update_prices',
         'last_login_at',
     ];
 
@@ -38,6 +40,8 @@ class Agent extends Model
         'is_active' => 'boolean',
         'is_suspended' => 'boolean',
         'bank_verified' => 'boolean',
+        'can_add_products' => 'boolean',
+        'can_update_prices' => 'boolean',
         'last_login_at' => 'datetime',
     ];
 

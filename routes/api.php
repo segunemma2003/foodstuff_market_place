@@ -106,6 +106,8 @@ Route::prefix('v1')->group(function () {
         Route::put('/agents/{agent}/activate', [AdminController::class, 'activateAgent']);
         Route::put('/agents/{agent}/reset-password', [AdminController::class, 'resetAgentPassword']);
         Route::put('/agents/{agent}/switch-market', [AdminController::class, 'switchAgentMarket']); // Switch agent to different market
+        Route::put('/agents/{agent}/permissions', [AdminController::class, 'updateAgentPermissions']); // Update agent permissions
+        Route::get('/agents/{agent}/permissions', [AdminController::class, 'getAgentPermissions']); // Get agent permissions
 
         // Product management
         Route::get('/products', [AdminController::class, 'getProducts']);
@@ -198,6 +200,7 @@ Route::prefix('v1')->group(function () {
 
     // Public S3 test endpoint
     Route::get('/test-s3', [AgentController::class, 'testS3Connection']);
+    Route::post('/test-image-upload', [AgentController::class, 'testImageUpload']);
 
     // Order management
     Route::get('/orders', [OrderController::class, 'index']);
