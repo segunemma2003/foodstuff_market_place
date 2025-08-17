@@ -138,22 +138,22 @@ class AgentController extends Controller
         $orders = $query->latest('created_at')->paginate($perPage);
 
         $formattedOrders = $orders->map(function ($order) {
-            return [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'customer_name' => $order->customer_name,
-                'whatsapp_number' => $order->whatsapp_number,
-                'delivery_address' => $order->delivery_address,
-                'total_amount' => $order->total_amount,
-                'status' => $order->status,
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'customer_name' => $order->customer_name,
+                    'whatsapp_number' => $order->whatsapp_number,
+                    'delivery_address' => $order->delivery_address,
+                    'total_amount' => $order->total_amount,
+                    'status' => $order->status,
                 'market' => $order->market ? [
                     'id' => $order->market->id,
                     'name' => $order->market->name,
                 ] : null,
-                'created_at' => $order->created_at,
+                    'created_at' => $order->created_at,
                 'updated_at' => $order->updated_at,
-            ];
-        });
+                ];
+            });
 
         return response()->json([
             'success' => true,
@@ -475,7 +475,7 @@ class AgentController extends Controller
     public function createProduct(Request $request): JsonResponse
     {
         try {
-            $agent = $this->getCurrentAgent();
+        $agent = $this->getCurrentAgent();
 
             // Check if agent can add products
             if (!$agent->can_add_products) {
@@ -485,38 +485,38 @@ class AgentController extends Controller
                 ], 403);
             }
 
-            $request->validate([
+        $request->validate([
                 'name' => 'required|string|max:255',
-                'description' => 'nullable|string',
+            'description' => 'nullable|string',
                 'category_id' => 'required|exists:categories,id',
-                'unit' => 'required|string|max:50',
+            'unit' => 'required|string|max:50',
                 'product_name' => 'required|string|max:255',
-                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
-                'prices' => 'required|array|min:1',
-                'prices.*.measurement_scale' => 'required|string|max:50',
-                'prices.*.price' => 'required|numeric|min:0',
-                'prices.*.stock_quantity' => 'nullable|integer|min:0',
-            ]);
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Add image validation
+            'prices' => 'required|array|min:1',
+            'prices.*.measurement_scale' => 'required|string|max:50',
+            'prices.*.price' => 'required|numeric|min:0',
+            'prices.*.stock_quantity' => 'nullable|integer|min:0',
+        ]);
 
             // Check if product name already exists in this market (market-level uniqueness)
-            $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-                ->where('product_name', $request->product_name)
-                ->first();
+        $existingProduct = MarketProduct::where('market_id', $agent->market_id)
+            ->where('product_name', $request->product_name)
+            ->first();
 
-            if ($existingProduct) {
-                return response()->json([
-                    'success' => false,
+        if ($existingProduct) {
+            return response()->json([
+                'success' => false,
                     'message' => 'Product with this name already exists in this market. Please use a different name or contact the market administrator.',
-                ], 400);
-            }
+            ], 400);
+        }
 
-            // Handle image upload
-            $imageUrl = null;
-            if ($request->hasFile('image')) {
-                try {
-                    $image = $request->file('image');
-                    $imageName = time() . '_' . $image->getClientOriginalName();
-                    $imagePath = 'products/' . $imageName;
+        // Handle image upload
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            try {
+                $image = $request->file('image');
+                $imageName = time() . '_' . $image->getClientOriginalName();
+                $imagePath = 'products/' . $imageName;
 
                     // Try S3 first, fallback to local storage
                     try {
@@ -526,7 +526,7 @@ class AgentController extends Controller
                             config('filesystems.disks.s3.secret') &&
                             config('filesystems.disks.s3.bucket')) {
 
-                            // Upload to S3
+                // Upload to S3
                             $uploadedPath = Storage::disk('s3')->putFileAs('products', $image, $imageName, 'public');
 
                             if ($uploadedPath) {
@@ -563,52 +563,52 @@ class AgentController extends Controller
                         ], 500);
                     }
 
-                } catch (\Exception $e) {
+            } catch (\Exception $e) {
                     Log::error('Image upload error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Failed to upload image: ' . $e->getMessage(),
-                    ], 400);
-                }
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to upload image: ' . $e->getMessage(),
+                ], 400);
             }
+        }
 
-            // Create the new product
-            $product = \App\Models\Product::create([
-                'category_id' => $request->category_id,
-                'name' => $request->name,
-                'description' => $request->description,
-                'image' => $imageUrl,
-                'unit' => $request->unit,
-                'is_active' => true,
-            ]);
+        // Create the new product
+        $product = \App\Models\Product::create([
+            'category_id' => $request->category_id,
+            'name' => $request->name,
+            'description' => $request->description,
+            'image' => $imageUrl,
+            'unit' => $request->unit,
+            'is_active' => true,
+        ]);
 
-            // Add the product to agent's inventory
-            $marketProduct = MarketProduct::create([
-                'market_id' => $agent->market_id,
-                'product_id' => $product->id,
-                'product_name' => $request->product_name,
-                'agent_id' => $agent->id,
+        // Add the product to agent's inventory
+        $marketProduct = MarketProduct::create([
+            'market_id' => $agent->market_id,
+            'product_id' => $product->id,
+            'product_name' => $request->product_name,
+            'agent_id' => $agent->id,
+            'is_available' => true,
+        ]);
+
+        // Create product prices for different measurement scales
+        foreach ($request->prices as $priceData) {
+            $marketProduct->productPrices()->create([
+                'measurement_scale' => $priceData['measurement_scale'],
+                'price' => $priceData['price'],
+                'stock_quantity' => $priceData['stock_quantity'] ?? null,
                 'is_available' => true,
             ]);
+        }
 
-            // Create product prices for different measurement scales
-            foreach ($request->prices as $priceData) {
-                $marketProduct->productPrices()->create([
-                    'measurement_scale' => $priceData['measurement_scale'],
-                    'price' => $priceData['price'],
-                    'stock_quantity' => $priceData['stock_quantity'] ?? null,
-                    'is_available' => true,
-                ]);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Product created and added to inventory successfully',
-                'data' => [
-                    'product' => $product->load('category'),
-                    'market_product' => $marketProduct->load(['productPrices', 'product.category']),
-                ],
-            ], 201);
+        return response()->json([
+            'success' => true,
+            'message' => 'Product created and added to inventory successfully',
+            'data' => [
+                'product' => $product->load('category'),
+                'market_product' => $marketProduct->load(['productPrices', 'product.category']),
+            ],
+        ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
