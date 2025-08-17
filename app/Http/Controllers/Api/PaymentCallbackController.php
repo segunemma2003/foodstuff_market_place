@@ -3,18 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\WhatsAppService;
 use App\Models\Order;
 use App\Models\WhatsappSession;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class PaymentCallbackController extends Controller
 {
-    public function __construct(
-        private WhatsAppService $whatsAppService
-    ) {}
+    public function __construct()
+    {}
 
     public function handlePaymentCallback(Request $request): JsonResponse
     {
@@ -63,11 +62,12 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send success notification with section info
-                $this->whatsAppService->sendPaymentSuccess(
+                // Send success notification to WhatsApp bot
+                $this->sendWhatsAppNotification(
                     $session->whatsapp_number,
                     $order->order_number,
-                    $request->amount,
+                    'paid',
+                    'Payment successful',
                     $session->section_id
                 );
 
@@ -97,10 +97,12 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send failure notification with section info
-                $this->whatsAppService->sendPaymentFailed(
+                // Send failure notification to WhatsApp bot
+                $this->sendWhatsAppNotification(
                     $session->whatsapp_number,
                     $order->order_number,
+                    'payment_failed',
+                    'Payment failed',
                     $session->section_id
                 );
 
@@ -214,12 +216,45 @@ class PaymentCallbackController extends Controller
         $order = $session->order;
         if (!$order) return;
 
-        // Use the new tracking method with section information
-        $this->whatsAppService->sendOrderTrackingInfo(
+        // Send notification to WhatsApp bot
+        $this->sendWhatsAppNotification(
             $session->whatsapp_number,
             $order->order_number,
             $status,
+            $message,
             $session->section_id
         );
+    }
+
+    private function sendWhatsAppNotification(string $whatsappNumber, string $orderNumber, string $status, string $message, ?string $sectionId = null): void
+    {
+        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
+
+        $data = [
+            'section_id' => $sectionId,
+            'status' => $status,
+            'message' => $message,
+            'whatsapp_number' => $whatsappNumber,
+            'order_number' => $orderNumber,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                Log::info('WhatsApp status notification sent successfully', [
+                    'order_number' => $orderNumber,
+                    'status' => $status,
+                ]);
+            } else {
+                Log::error('Failed to send WhatsApp status notification', [
+                    'order_number' => $orderNumber,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending WhatsApp status notification: ' . $e->getMessage());
+        }
     }
 }
