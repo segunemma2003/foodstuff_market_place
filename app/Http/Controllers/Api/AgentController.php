@@ -102,7 +102,12 @@ class AgentController extends Controller
     {
         $agent = $this->getCurrentAgent();
 
-        $query = $agent->orders()->with('market');
+        $query = $agent->orders()
+            ->select([
+                'id', 'order_number', 'customer_name', 'whatsapp_number',
+                'delivery_address', 'total_amount', 'status', 'created_at', 'updated_at'
+            ])
+            ->with(['market:id,name']); // Only load necessary fields
 
         // Filter by status
         if ($request->has('status') && $request->status) {
@@ -120,16 +125,17 @@ class AgentController extends Controller
 
         // Search by order number, customer name, or phone
         if ($request->has('search') && $request->search) {
-            $query->where(function ($q) use ($request) {
-                $q->where('order_number', 'like', '%' . $request->search . '%')
-                  ->orWhere('customer_name', 'like', '%' . $request->search . '%')
-                  ->orWhere('whatsapp_number', 'like', '%' . $request->search . '%');
+            $searchTerm = $request->search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('order_number', 'like', "%{$searchTerm}%")
+                  ->orWhere('customer_name', 'like', "%{$searchTerm}%")
+                  ->orWhere('whatsapp_number', 'like', "%{$searchTerm}%");
             });
         }
 
-        // Pagination
-        $perPage = $request->per_page ?? 20;
-        $orders = $query->latest()->paginate($perPage);
+        // Pagination with optimized limit
+        $perPage = min($request->per_page ?? 20, 100); // Cap at 100 for performance
+        $orders = $query->latest('created_at')->paginate($perPage);
 
         $formattedOrders = $orders->map(function ($order) {
             return [

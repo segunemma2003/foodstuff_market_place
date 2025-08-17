@@ -12,6 +12,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class WhatsAppController extends Controller
 {
@@ -140,6 +142,8 @@ class WhatsAppController extends Controller
 
     public function confirmSection(Request $request): JsonResponse
     {
+        $startTime = microtime(true);
+
         try {
             $request->validate([
                 'section_id' => 'required|string',
@@ -154,24 +158,19 @@ class WhatsAppController extends Controller
                 ], 404);
             }
 
-            // Get customer name from previous orders
-            $customerName = null;
-            $previousOrder = Order::where('whatsapp_number', $session->whatsapp_number)
+            // Optimized customer name retrieval with single query
+            $customerName = Order::where('whatsapp_number', $session->whatsapp_number)
                 ->whereNotNull('customer_name')
                 ->orderBy('created_at', 'desc')
-                ->first();
+                ->value('customer_name');
 
-            if ($previousOrder) {
-                $customerName = $previousOrder->customer_name;
-            }
-
-            return response()->json([
+            $response = [
                 'success' => true,
                 'section' => [
                     'section_id' => $session->section_id,
                     'status' => $session->status,
                     'whatsapp_number' => $session->whatsapp_number,
-                    'customer_name' => $customerName,  // Will be null for new customers
+                    'customer_name' => $customerName,
                     'delivery_address' => $session->delivery_address,
                     'delivery_latitude' => $session->delivery_latitude,
                     'delivery_longitude' => $session->delivery_longitude,
@@ -180,10 +179,24 @@ class WhatsAppController extends Controller
                     'created_at' => $session->created_at,
                     'last_activity' => $session->last_activity,
                 ],
+            ];
+
+            $executionTime = (microtime(true) - $startTime) * 1000;
+            Log::info('confirmSection performance', [
+                'execution_time_ms' => round($executionTime, 2),
+                'section_id' => $request->section_id
             ]);
 
+            return response()->json($response);
+
         } catch (\Exception $e) {
-            Log::error('Error confirming section: ' . $e->getMessage());
+            $executionTime = (microtime(true) - $startTime) * 1000;
+            Log::error('Error confirming section', [
+                'error' => $e->getMessage(),
+                'execution_time_ms' => round($executionTime, 2),
+                'section_id' => $request->section_id ?? null
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error confirming section',
@@ -403,17 +416,32 @@ class WhatsAppController extends Controller
             $perPage = $request->per_page ?? 20;
             $page = $request->page ?? 1;
 
-            $query = \App\Models\MarketProduct::with(['product', 'prices'])
+            // Create cache key based on parameters
+            $cacheKey = "market_products_{$request->market_id}_" .
+                       ($request->search ? md5($request->search) : 'all') .
+                       "_{$page}_{$perPage}";
+
+            // Cache for 5 minutes for frequently accessed data
+            $products = Cache::remember($cacheKey, 300, function () use ($request, $perPage, $page) {
+                $query = \App\Models\MarketProduct::select([
+                    'id', 'product_id', 'product_name', 'is_available'
+                ])
+                ->with([
+                    'product:id,category_id,name,description,image,unit',
+                    'product.category:id,name',
+                    'prices:id,market_product_id,measurement_scale,price,unit,is_available'
+                ])
                 ->where('market_id', $request->market_id)
                 ->where('is_available', true);
 
-            if ($request->search) {
-                $query->whereHas('product', function($q) use ($request) {
-                    $q->where('name', 'like', '%' . $request->search . '%');
-                });
-            }
+                if ($request->search) {
+                    $query->whereHas('product', function($q) use ($request) {
+                        $q->where('name', 'like', '%' . $request->search . '%');
+                    });
+                }
 
-            $products = $query->paginate($perPage, ['*'], 'page', $page);
+                return $query->paginate($perPage, ['*'], 'page', $page);
+            });
 
             $formattedProducts = $products->map(function($marketProduct) {
                 return [
@@ -466,7 +494,7 @@ class WhatsAppController extends Controller
                 'items.*.quantity' => 'required|numeric|min:0.1',
                 'items.*.measurement_scale' => 'required|string',
                 'items.*.unit_price' => 'required|numeric|min:0',
-                'customer_name' => 'nullable|string',  // Made optional
+                'customer_name' => 'nullable|string',
                 'customer_phone' => 'required|string',
                 'subtotal' => 'required|numeric|min:0',
                 'delivery_fee' => 'required|numeric|min:0',
@@ -474,79 +502,84 @@ class WhatsAppController extends Controller
                 'total_amount' => 'required|numeric|min:0',
             ]);
 
-            $session = WhatsappSession::where('section_id', $request->section_id)->first();
-            if (!$session) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Section not found',
-                ], 404);
-            }
-
-            // Auto-retrieve customer name if not provided
-            $customerName = $request->customer_name;
-            if (!$customerName) {
-                $previousOrder = Order::where('whatsapp_number', $session->whatsapp_number)
-                    ->whereNotNull('customer_name')
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-
-                if ($previousOrder) {
-                    $customerName = $previousOrder->customer_name;
-                } else {
+            return DB::transaction(function () use ($request) {
+                $session = WhatsappSession::where('section_id', $request->section_id)->first();
+                if (!$session) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Customer name is required for new customers',
-                    ], 400);
+                        'message' => 'Section not found',
+                    ], 404);
                 }
-            }
 
-            // Create order
-            $order = Order::create([
-                'order_number' => 'FS' . date('Ymd') . Str::random(6),
-                'whatsapp_number' => $session->whatsapp_number,
-                'customer_name' => $customerName,
-                'customer_phone' => $request->customer_phone,
-                'delivery_address' => $session->delivery_address,
-                'delivery_latitude' => $session->delivery_latitude,
-                'delivery_longitude' => $session->delivery_longitude,
-                'market_id' => $session->selected_market_id,
-                'subtotal' => $request->subtotal,
-                'delivery_fee' => $request->delivery_fee,
-                'service_charge' => $request->service_charge,
-                'total_amount' => $request->total_amount,
-                'status' => 'pending',
-            ]);
+                // Optimized customer name retrieval
+                $customerName = $request->customer_name;
+                if (!$customerName) {
+                    $customerName = Order::where('whatsapp_number', $session->whatsapp_number)
+                        ->whereNotNull('customer_name')
+                        ->orderBy('created_at', 'desc')
+                        ->value('customer_name');
 
-            // Create order items
-            foreach ($request->items as $item) {
-                \App\Models\OrderItem::create([
-                    'order_id' => $order->id,
-                    'product_id' => $item['product_id'],
-                    'product_name' => $item['product_name'] ?? 'Product',
-                    'unit_price' => $item['unit_price'],
-                    'quantity' => $item['quantity'],
-                    'measurement_scale' => $item['measurement_scale'],
-                    'total_price' => $item['unit_price'] * $item['quantity'],
+                    if (!$customerName) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Customer name is required for new customers',
+                        ], 400);
+                    }
+                }
+
+                // Create order with optimized fields
+                $order = Order::create([
+                    'order_number' => 'FS' . date('Ymd') . Str::random(6),
+                    'whatsapp_number' => $session->whatsapp_number,
+                    'customer_name' => $customerName,
+                    'customer_phone' => $request->customer_phone,
+                    'delivery_address' => $session->delivery_address,
+                    'delivery_latitude' => $session->delivery_latitude,
+                    'delivery_longitude' => $session->delivery_longitude,
+                    'market_id' => $session->selected_market_id,
+                    'subtotal' => $request->subtotal,
+                    'delivery_fee' => $request->delivery_fee,
+                    'service_charge' => $request->service_charge,
+                    'total_amount' => $request->total_amount,
+                    'status' => 'pending',
                 ]);
-            }
 
-            // Update session with order
-            $session->update([
-                'order_id' => $order->id,
-                'status' => 'order_created',
-                'last_activity' => now(),
-            ]);
+                // Bulk insert order items for better performance
+                $orderItems = [];
+                foreach ($request->items as $item) {
+                    $orderItems[] = [
+                        'order_id' => $order->id,
+                        'product_id' => $item['product_id'],
+                        'product_name' => $item['product_name'] ?? 'Product',
+                        'unit_price' => $item['unit_price'],
+                        'quantity' => $item['quantity'],
+                        'measurement_scale' => $item['measurement_scale'],
+                        'total_price' => $item['unit_price'] * $item['quantity'],
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
 
-            // Generate Paystack payment URL
-            $paymentUrl = $this->generatePaymentUrl($order);
+                \App\Models\OrderItem::insert($orderItems);
 
-            return response()->json([
-                'success' => true,
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'payment_url' => $paymentUrl,
-                'message' => 'Order created successfully',
-            ]);
+                // Update session
+                $session->update([
+                    'order_id' => $order->id,
+                    'status' => 'order_created',
+                    'last_activity' => now(),
+                ]);
+
+                // Generate payment URL
+                $paymentUrl = $this->generatePaymentUrl($order);
+
+                return response()->json([
+                    'success' => true,
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'payment_url' => $paymentUrl,
+                    'message' => 'Order created successfully',
+                ]);
+            });
 
         } catch (\Exception $e) {
             Log::error('Error creating order: ' . $e->getMessage());
