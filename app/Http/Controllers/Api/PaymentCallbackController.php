@@ -20,27 +20,51 @@ class PaymentCallbackController extends Controller
     public function handlePaymentCallback(Request $request): JsonResponse
     {
         try {
+            // Validate Paystack webhook format
             $request->validate([
-                'section_id' => 'required|string',
-                'payment_status' => 'required|string|in:success,failed',
-                'transaction_reference' => 'required|string',
-                'amount' => 'required|numeric',
-                'message' => 'nullable|string',
+                'event' => 'required|string',
+                'data' => 'required|array',
+                'data.reference' => 'required|string',
+                'data.status' => 'required|string',
+                'data.amount' => 'required|numeric',
+                'data.metadata' => 'nullable|array',
             ]);
 
-            // Find order by order number (transaction reference)
-            $order = Order::where('order_number', $request->transaction_reference)->first();
+            // Only process charge.success events
+            if ($request->event !== 'charge.success') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Event ignored: ' . $request->event,
+                ]);
+            }
+
+            $transactionData = $request->data;
+            $reference = $transactionData['reference'];
+            $status = $transactionData['status'];
+            $amount = $transactionData['amount'] / 100; // Paystack amounts are in kobo
+            $metadata = $transactionData['metadata'] ?? [];
+            $sectionId = $metadata['section_id'] ?? null;
+
+            // Find order by reference (Paystack reference)
+            $order = Order::where('paystack_reference', $reference)->first();
             if (!$order) {
+                Log::warning('Order not found for Paystack reference', [
+                    'reference' => $reference,
+                    'event' => $request->event,
+                ]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Order not found for order number: ' . $request->transaction_reference,
+                    'message' => 'Order not found for reference: ' . $reference,
                 ], 404);
             }
 
-            // Find the session by whatsapp number and section_id
-            $session = WhatsappSession::where('whatsapp_number', $order->whatsapp_number)
-                ->where('section_id', $request->section_id)
-                ->first();
+            // Find the session by whatsapp number and section_id (if available)
+            $session = null;
+            if ($sectionId) {
+                $session = WhatsappSession::where('whatsapp_number', $order->whatsapp_number)
+                    ->where('section_id', $sectionId)
+                    ->first();
+            }
 
             // If session not found, try to find by whatsapp number only
             if (!$session) {
@@ -50,18 +74,23 @@ class PaymentCallbackController extends Controller
             }
 
             if (!$session) {
+                Log::warning('WhatsApp session not found for order', [
+                    'order_id' => $order->id,
+                    'whatsapp_number' => $order->whatsapp_number,
+                    'section_id' => $sectionId,
+                ]);
                 return response()->json([
                     'success' => false,
                     'message' => 'WhatsApp session not found for this order',
                 ], 404);
             }
 
-            if ($request->payment_status === 'success') {
+            if ($status === 'success') {
                 // Update order status
                 $order->update([
                     'status' => 'paid',
-                    'payment_reference' => $request->transaction_reference,
-                    'paystack_reference' => $request->transaction_reference,
+                    'payment_reference' => $reference,
+                    'paystack_reference' => $reference,
                     'paid_at' => now(),
                 ]);
 
@@ -71,13 +100,13 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Automatically assign an agent (if available)
-                try {
-                    $this->assignAgentToOrder($order);
-                } catch (\Exception $e) {
-                    Log::warning('Could not assign agent automatically: ' . $e->getMessage());
-                    // Continue with payment processing even if agent assignment fails
-                }
+                // Automatically assign an agent (if available) - temporarily disabled for testing
+                // try {
+                //     $this->assignAgentToOrder($order);
+                // } catch (\Exception $e) {
+                //     Log::warning('Could not assign agent automatically: ' . $e->getMessage());
+                //     // Continue with payment processing even if agent assignment fails
+                // }
 
                 // Send success notification to WhatsApp bot (temporarily disabled due to bot URL issue)
                 // $this->sendWhatsAppNotification(
@@ -89,9 +118,10 @@ class PaymentCallbackController extends Controller
                 // );
 
                 Log::info('Payment successful', [
-                    'section_id' => $request->section_id,
+                    'section_id' => $sectionId,
                     'order_number' => $order->order_number,
-                    'amount' => $request->amount,
+                    'amount' => $amount,
+                    'reference' => $reference,
                 ]);
 
                 return response()->json([
@@ -102,10 +132,10 @@ class PaymentCallbackController extends Controller
                 ]);
 
             } else {
-                // Payment failed
+                // Payment failed or other status
                 $order->update([
                     'status' => 'payment_failed',
-                    'payment_reference' => $request->transaction_reference,
+                    'payment_reference' => $reference,
                 ]);
 
                 // Update session status
@@ -114,19 +144,20 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send failure notification to WhatsApp bot
-                $this->sendWhatsAppNotification(
-                    $session->whatsapp_number,
-                    $order->order_number,
-                    'payment_failed',
-                    'Payment failed',
-                    $session->section_id
-                );
+                // Send failure notification to WhatsApp bot (temporarily disabled)
+                // $this->sendWhatsAppNotification(
+                //     $session->whatsapp_number,
+                //     $order->order_number,
+                //     'payment_failed',
+                //     'Payment failed',
+                //     $session->section_id
+                // );
 
                 Log::warning('Payment failed', [
-                    'section_id' => $request->section_id,
+                    'section_id' => $sectionId,
                     'order_number' => $order->order_number,
-                    'message' => $request->message,
+                    'status' => $status,
+                    'reference' => $reference,
                 ]);
 
                 return response()->json([
