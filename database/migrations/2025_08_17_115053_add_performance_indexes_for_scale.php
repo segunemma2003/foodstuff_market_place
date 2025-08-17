@@ -19,7 +19,7 @@ return new class extends Migration
             $table->index(['whatsapp_number', 'created_at'], 'orders_whatsapp_created_idx');
             $table->index(['status', 'created_at'], 'orders_status_created_idx');
             $table->index(['delivery_latitude', 'delivery_longitude'], 'orders_location_idx');
-            
+
             // For date range queries
             $table->index('created_at');
             $table->index('updated_at');
