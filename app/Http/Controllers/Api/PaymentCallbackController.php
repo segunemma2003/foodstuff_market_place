@@ -27,20 +27,24 @@ class PaymentCallbackController extends Controller
                 'message' => 'nullable|string',
             ]);
 
-            $session = WhatsappSession::where('section_id', $request->section_id)->first();
+            // Find order by order number (transaction reference)
+            $order = Order::where('order_number', $request->transaction_reference)->first();
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found for order number: ' . $request->transaction_reference,
+                ], 404);
+            }
+
+            // Find the session by whatsapp number and section_id
+            $session = WhatsappSession::where('whatsapp_number', $order->whatsapp_number)
+                ->where('section_id', $request->section_id)
+                ->first();
 
             if (!$session) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Section not found',
-                ], 404);
-            }
-
-            $order = $session->order;
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found for this section',
+                    'message' => 'WhatsApp session not found for this order',
                 ], 404);
             }
 
