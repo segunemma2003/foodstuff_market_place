@@ -79,14 +79,14 @@ class PaymentCallbackController extends Controller
                     // Continue with payment processing even if agent assignment fails
                 }
 
-                // Send success notification to WhatsApp bot
-                $this->sendWhatsAppNotification(
-                    $session->whatsapp_number,
-                    $order->order_number,
-                    'paid',
-                    'Payment successful',
-                    $session->section_id
-                );
+                // Send success notification to WhatsApp bot (temporarily disabled due to bot URL issue)
+                // $this->sendWhatsAppNotification(
+                //     $session->whatsapp_number,
+                //     $order->order_number,
+                //     'paid',
+                //     'Payment successful',
+                //     $session->section_id
+                // );
 
                 Log::info('Payment successful', [
                     'section_id' => $request->section_id,
@@ -276,14 +276,14 @@ class PaymentCallbackController extends Controller
             'status' => 'pending',
         ]);
 
-        // Send agent assignment notification to WhatsApp bot
-        $this->sendWhatsAppNotification(
-            $order->whatsapp_number,
-            $order->order_number,
-            'assigned',
-            "Agent {$availableAgent->full_name} has been assigned to your order",
-            $order->whatsappSession->section_id ?? null
-        );
+                        // Send agent assignment notification to WhatsApp bot (temporarily disabled due to bot URL issue)
+                // $this->sendWhatsAppNotification(
+                //     $order->whatsapp_number,
+                //     $order->order_number,
+                //     'assigned',
+                //     "Agent {$availableAgent->full_name} has been assigned to your order",
+                //     $order->whatsappSession->section_id ?? null
+                // );
 
         Log::info('Agent assigned to order', [
             'order_id' => $order->id,
