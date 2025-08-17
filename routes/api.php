@@ -165,6 +165,7 @@ Route::prefix('v1')->group(function () {
         // Product management
         Route::get('/products', [AgentController::class, 'getProducts']);
         Route::get('/products/all', [AgentController::class, 'getAllProducts']); // Get all available products for dropdown
+        Route::get('/products/market', [AgentController::class, 'getMarketProducts']); // Get all products in the agent's market
         Route::get('/categories', [AgentController::class, 'getCategories']); // Get categories for creating products
         Route::post('/products', [AgentController::class, 'addProduct']); // Add existing product to inventory
         Route::post('/products/create', [AgentController::class, 'createProduct']); // Create new product and add to inventory

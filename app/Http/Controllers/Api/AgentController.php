@@ -337,6 +337,51 @@ class AgentController extends Controller
         ]);
     }
 
+    /**
+     * Get all products in the agent's market
+     */
+    public function getMarketProducts(): JsonResponse
+    {
+        $agent = $this->getCurrentAgent();
+
+        $marketProducts = MarketProduct::where('market_id', $agent->market_id)
+            ->where('is_available', true)
+            ->with(['product.category', 'productPrices', 'agent'])
+            ->get()
+            ->map(function ($marketProduct) use ($agent) {
+                return [
+                    'id' => $marketProduct->id,
+                    'product_id' => $marketProduct->product_id,
+                    'product_name' => $marketProduct->product_name,
+                    'base_product_name' => $marketProduct->product->name,
+                    'description' => $marketProduct->product->description,
+                    'image' => $marketProduct->product->image,
+                    'unit' => $marketProduct->product->unit,
+                    'category' => $marketProduct->product->category->name,
+                    'agent_name' => $marketProduct->agent->full_name,
+                    'is_my_product' => $marketProduct->agent_id === $agent->id,
+                    'prices' => $marketProduct->productPrices->map(function ($price) {
+                        return [
+                            'id' => $price->id,
+                            'measurement_scale' => $price->measurement_scale,
+                            'price' => $price->price,
+                            'stock_quantity' => $price->stock_quantity,
+                            'is_available' => $price->is_available,
+                        ];
+                    }),
+                    'created_at' => $marketProduct->created_at,
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => $marketProducts,
+        ]);
+    }
+
+    /**
+     * Get all available products for dropdown
+     */
     public function getAllProducts(): JsonResponse
     {
         $agent = $this->getCurrentAgent();
@@ -411,16 +456,15 @@ class AgentController extends Controller
                 'prices.*.stock_quantity' => 'nullable|integer|min:0',
             ]);
 
-            // Check if custom product name already exists for this agent in this market
+            // Check if product name already exists in this market (market-level uniqueness)
             $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-                ->where('agent_id', $agent->id)
                 ->where('product_name', $request->product_name)
                 ->first();
 
             if ($existingProduct) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Product with this name already exists in your inventory',
+                    'message' => 'Product with this name already exists in this market. Please use a different name or contact the market administrator.',
                 ], 400);
             }
 
@@ -562,16 +606,15 @@ class AgentController extends Controller
                 'prices.*.stock_quantity' => 'nullable|integer|min:0',
             ]);
 
-            // Check if product name already exists for this agent in this market
+            // Check if product name already exists in this market (market-level uniqueness)
             $existingProduct = MarketProduct::where('market_id', $agent->market_id)
-                ->where('agent_id', $agent->id)
                 ->where('product_name', $request->product_name)
                 ->first();
 
             if ($existingProduct) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Product with this name already exists in your inventory',
+                    'message' => 'Product with this name already exists in this market. Please use a different name or contact the market administrator.',
                 ], 400);
             }
 
