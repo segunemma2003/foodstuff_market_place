@@ -62,14 +62,14 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send success notification to WhatsApp bot
-                $this->sendWhatsAppNotification(
-                    $session->whatsapp_number,
-                    $order->order_number,
-                    'paid',
-                    'Payment successful',
-                    $session->section_id
-                );
+                // Send success notification to WhatsApp bot (temporarily disabled for testing)
+                // $this->sendWhatsAppNotification(
+                //     $session->whatsapp_number,
+                //     $order->order_number,
+                //     'paid',
+                //     'Payment successful',
+                //     $session->section_id
+                // );
 
                 Log::info('Payment successful', [
                     'section_id' => $request->section_id,
@@ -97,14 +97,14 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send failure notification to WhatsApp bot
-                $this->sendWhatsAppNotification(
-                    $session->whatsapp_number,
-                    $order->order_number,
-                    'payment_failed',
-                    'Payment failed',
-                    $session->section_id
-                );
+                // Send failure notification to WhatsApp bot (temporarily disabled for testing)
+                // $this->sendWhatsAppNotification(
+                //     $session->whatsapp_number,
+                //     $order->order_number,
+                //     'payment_failed',
+                //     'Payment failed',
+                //     $session->section_id
+                // );
 
                 Log::warning('Payment failed', [
                     'section_id' => $request->section_id,
