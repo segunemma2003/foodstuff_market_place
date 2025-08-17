@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\WhatsappSession;
+use App\Models\Agent;
+use App\Models\AgentEarning;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -40,6 +42,13 @@ class PaymentCallbackController extends Controller
                 ->where('section_id', $request->section_id)
                 ->first();
 
+            // If session not found, try to find by whatsapp number only
+            if (!$session) {
+                $session = WhatsappSession::where('whatsapp_number', $order->whatsapp_number)
+                    ->where('status', 'active')
+                    ->first();
+            }
+
             if (!$session) {
                 return response()->json([
                     'success' => false,
@@ -62,14 +71,22 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send success notification to WhatsApp bot (temporarily disabled for testing)
-                // $this->sendWhatsAppNotification(
-                //     $session->whatsapp_number,
-                //     $order->order_number,
-                //     'paid',
-                //     'Payment successful',
-                //     $session->section_id
-                // );
+                // Automatically assign an agent (if available)
+                try {
+                    $this->assignAgentToOrder($order);
+                } catch (\Exception $e) {
+                    Log::warning('Could not assign agent automatically: ' . $e->getMessage());
+                    // Continue with payment processing even if agent assignment fails
+                }
+
+                // Send success notification to WhatsApp bot
+                $this->sendWhatsAppNotification(
+                    $session->whatsapp_number,
+                    $order->order_number,
+                    'paid',
+                    'Payment successful',
+                    $session->section_id
+                );
 
                 Log::info('Payment successful', [
                     'section_id' => $request->section_id,
@@ -97,14 +114,14 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send failure notification to WhatsApp bot (temporarily disabled for testing)
-                // $this->sendWhatsAppNotification(
-                //     $session->whatsapp_number,
-                //     $order->order_number,
-                //     'payment_failed',
-                //     'Payment failed',
-                //     $session->section_id
-                // );
+                // Send failure notification to WhatsApp bot
+                $this->sendWhatsAppNotification(
+                    $session->whatsapp_number,
+                    $order->order_number,
+                    'payment_failed',
+                    'Payment failed',
+                    $session->section_id
+                );
 
                 Log::warning('Payment failed', [
                     'section_id' => $request->section_id,
@@ -224,6 +241,55 @@ class PaymentCallbackController extends Controller
             $message,
             $session->section_id
         );
+    }
+
+    private function assignAgentToOrder(Order $order): void
+    {
+        // Find available agent in the market
+        $availableAgent = Agent::where('market_id', $order->market_id)
+            ->where('is_active', true)
+            ->where('is_suspended', false)
+            ->first();
+
+        if (!$availableAgent) {
+            Log::warning('No available agents for order', [
+                'order_id' => $order->id,
+                'market_id' => $order->market_id,
+            ]);
+            // Don't throw exception, just return without assigning agent
+            return;
+        }
+
+        // Update order with agent
+        $order->update([
+            'agent_id' => $availableAgent->id,
+        ]);
+
+        // Update order status to assigned
+        $order->updateStatus('assigned', "Order assigned to agent {$availableAgent->full_name}");
+
+        // Create agent earning record
+        AgentEarning::create([
+            'agent_id' => $availableAgent->id,
+            'order_id' => $order->id,
+            'amount' => $order->total_amount * 0.1, // 10% commission
+            'status' => 'pending',
+        ]);
+
+        // Send agent assignment notification to WhatsApp bot
+        $this->sendWhatsAppNotification(
+            $order->whatsapp_number,
+            $order->order_number,
+            'assigned',
+            "Agent {$availableAgent->full_name} has been assigned to your order",
+            $order->whatsappSession->section_id ?? null
+        );
+
+        Log::info('Agent assigned to order', [
+            'order_id' => $order->id,
+            'agent_id' => $availableAgent->id,
+            'agent_name' => $availableAgent->full_name,
+        ]);
     }
 
     private function sendWhatsAppNotification(string $whatsappNumber, string $orderNumber, string $status, string $message, ?string $sectionId = null): void
