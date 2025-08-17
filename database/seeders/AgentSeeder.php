@@ -64,6 +64,7 @@ class AgentSeeder extends Seeder
         ];
 
         foreach ($agents as $agent) {
+            $agent['password'] = Hash::make($agent['password']);
             Agent::create($agent);
         }
     }

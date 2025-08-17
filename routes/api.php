@@ -196,6 +196,9 @@ Route::prefix('v1')->group(function () {
     // Health check route
     Route::get('/admin/health', [AdminController::class, 'healthCheck']);
 
+    // Public S3 test endpoint
+    Route::get('/test-s3', [AgentController::class, 'testS3Connection']);
+
     // Order management
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/market-prices', [OrderController::class, 'getMarketProductPrices']);
