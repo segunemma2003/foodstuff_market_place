@@ -788,35 +788,78 @@ class AdminController extends Controller
     }
 
     // Order Management
-    public function getOrders(): JsonResponse
+    public function getOrders(Request $request): JsonResponse
     {
-        $orders = Order::with(['market', 'agent'])
-            ->latest()
-            ->get()
-            ->map(function ($order) {
-                return [
-                    'id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'customer_name' => $order->customer_name,
-                    'whatsapp_number' => $order->whatsapp_number,
-                    'delivery_address' => $order->delivery_address,
-                    'total_amount' => $order->total_amount,
-                    'status' => $order->status,
-                    'market' => $order->market ? [
-                        'id' => $order->market->id,
-                        'name' => $order->market->name,
-                    ] : null,
-                    'agent' => $order->agent ? [
-                        'id' => $order->agent->id,
-                        'name' => $order->agent->full_name,
-                    ] : null,
-                    'created_at' => $order->created_at,
-                ];
+        $query = Order::with(['market', 'agent']);
+
+        // Filter by status
+        if ($request->has('status') && $request->status) {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by market
+        if ($request->has('market_id') && $request->market_id) {
+            $query->where('market_id', $request->market_id);
+        }
+
+        // Filter by agent
+        if ($request->has('agent_id') && $request->agent_id) {
+            $query->where('agent_id', $request->agent_id);
+        }
+
+        // Filter by date range
+        if ($request->has('start_date') && $request->start_date) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+
+        if ($request->has('end_date') && $request->end_date) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        // Search by order number, customer name, or phone
+        if ($request->has('search') && $request->search) {
+            $query->where(function ($q) use ($request) {
+                $q->where('order_number', 'like', '%' . $request->search . '%')
+                  ->orWhere('customer_name', 'like', '%' . $request->search . '%')
+                  ->orWhere('whatsapp_number', 'like', '%' . $request->search . '%');
             });
+        }
+
+        // Pagination
+        $perPage = $request->per_page ?? 20;
+        $orders = $query->latest()->paginate($perPage);
+
+        $formattedOrders = $orders->map(function ($order) {
+            return [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_name' => $order->customer_name,
+                'whatsapp_number' => $order->whatsapp_number,
+                'delivery_address' => $order->delivery_address,
+                'total_amount' => $order->total_amount,
+                'status' => $order->status,
+                'market' => $order->market ? [
+                    'id' => $order->market->id,
+                    'name' => $order->market->name,
+                ] : null,
+                'agent' => $order->agent ? [
+                    'id' => $order->agent->id,
+                    'name' => $order->agent->full_name,
+                ] : null,
+                'created_at' => $order->created_at,
+                'updated_at' => $order->updated_at,
+            ];
+        });
 
         return response()->json([
             'success' => true,
-            'data' => $orders,
+            'data' => $formattedOrders,
+            'pagination' => [
+                'current_page' => $orders->currentPage(),
+                'last_page' => $orders->lastPage(),
+                'per_page' => $orders->perPage(),
+                'total' => $orders->total(),
+            ],
         ]);
     }
 

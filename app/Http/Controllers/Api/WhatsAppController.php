@@ -154,12 +154,24 @@ class WhatsAppController extends Controller
                 ], 404);
             }
 
+            // Get customer name from previous orders
+            $customerName = null;
+            $previousOrder = Order::where('whatsapp_number', $session->whatsapp_number)
+                ->whereNotNull('customer_name')
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($previousOrder) {
+                $customerName = $previousOrder->customer_name;
+            }
+
             return response()->json([
                 'success' => true,
                 'section' => [
                     'section_id' => $session->section_id,
                     'status' => $session->status,
                     'whatsapp_number' => $session->whatsapp_number,
+                    'customer_name' => $customerName,  // Will be null for new customers
                     'delivery_address' => $session->delivery_address,
                     'delivery_latitude' => $session->delivery_latitude,
                     'delivery_longitude' => $session->delivery_longitude,
@@ -195,12 +207,24 @@ class WhatsAppController extends Controller
                 ], 404);
             }
 
+            // Get customer name from previous orders
+            $customerName = null;
+            $previousOrder = Order::where('whatsapp_number', $session->whatsapp_number)
+                ->whereNotNull('customer_name')
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($previousOrder) {
+                $customerName = $previousOrder->customer_name;
+            }
+
             return response()->json([
                 'success' => true,
                 'section' => [
                     'section_id' => $session->section_id,
                     'status' => $session->status,
                     'whatsapp_number' => $session->whatsapp_number,
+                    'customer_name' => $customerName,  // Will be null for new customers
                     'delivery_address' => $session->delivery_address,
                     'delivery_latitude' => $session->delivery_latitude,
                     'delivery_longitude' => $session->delivery_longitude,
@@ -442,7 +466,7 @@ class WhatsAppController extends Controller
                 'items.*.quantity' => 'required|numeric|min:0.1',
                 'items.*.measurement_scale' => 'required|string',
                 'items.*.unit_price' => 'required|numeric|min:0',
-                'customer_name' => 'required|string',
+                'customer_name' => 'nullable|string',  // Made optional
                 'customer_phone' => 'required|string',
                 'subtotal' => 'required|numeric|min:0',
                 'delivery_fee' => 'required|numeric|min:0',
@@ -458,11 +482,29 @@ class WhatsAppController extends Controller
                 ], 404);
             }
 
+            // Auto-retrieve customer name if not provided
+            $customerName = $request->customer_name;
+            if (!$customerName) {
+                $previousOrder = Order::where('whatsapp_number', $session->whatsapp_number)
+                    ->whereNotNull('customer_name')
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+
+                if ($previousOrder) {
+                    $customerName = $previousOrder->customer_name;
+                } else {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Customer name is required for new customers',
+                    ], 400);
+                }
+            }
+
             // Create order
             $order = Order::create([
                 'order_number' => 'FS' . date('Ymd') . Str::random(6),
                 'whatsapp_number' => $session->whatsapp_number,
-                'customer_name' => $request->customer_name,
+                'customer_name' => $customerName,
                 'customer_phone' => $request->customer_phone,
                 'delivery_address' => $session->delivery_address,
                 'delivery_latitude' => $session->delivery_latitude,
