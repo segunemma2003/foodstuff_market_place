@@ -64,7 +64,7 @@ Route::prefix('v1')->group(function () {
     // Payment APIs
     Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
     Route::post('/payments/verify', [PaymentController::class, 'verify']);
-    Route::post('/payments/callback', [PaymentController::class, 'callback']);
+    // Route::post('/payments/callback', [PaymentController::class, 'callback']);
 
     // Payment Callback APIs
     Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
