@@ -499,7 +499,7 @@ class WhatsAppController extends Controller
             $request->validate([
                 'section_id' => 'required|string',
                 'items' => 'required|array',
-                'items.*.product_id' => 'required|integer',
+                'items.*.market_product_id' => 'required|integer',
                 'items.*.quantity' => 'required|numeric|min:0.1',
                 'items.*.measurement_scale' => 'required|string',
                 'items.*.unit_price' => 'required|numeric|min:0',
@@ -556,10 +556,16 @@ class WhatsAppController extends Controller
                 // Bulk insert order items for better performance
                 $orderItems = [];
                 foreach ($request->items as $item) {
+                    // Get the product_id from market_product_id
+                    $marketProduct = \App\Models\MarketProduct::find($item['market_product_id']);
+                    if (!$marketProduct) {
+                        throw new \Exception('Market product not found: ' . $item['market_product_id']);
+                    }
+
                     $orderItems[] = [
                         'order_id' => $order->id,
-                        'product_id' => $item['product_id'],
-                        'product_name' => $item['product_name'] ?? 'Product',
+                        'product_id' => $marketProduct->product_id,
+                        'product_name' => $item['product_name'] ?? $marketProduct->product_name ?? 'Product',
                         'unit_price' => $item['unit_price'],
                         'quantity' => $item['quantity'],
                         'measurement_scale' => $item['measurement_scale'],
@@ -589,10 +595,16 @@ class WhatsAppController extends Controller
             });
 
         } catch (\Exception $e) {
-            Log::error('Error creating order: ' . $e->getMessage());
+            Log::error('Error creating order: ' . $e->getMessage(), [
+                'section_id' => $request->section_id,
+                'items_count' => count($request->items ?? []),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Error creating order',
+                'message' => 'Error creating order: ' . $e->getMessage(),
             ], 500);
         }
     }
