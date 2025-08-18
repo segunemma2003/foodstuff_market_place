@@ -25,9 +25,10 @@ Route::get('/test', function () {
 });
 
 // Payment webhook routes - MUST be outside the v1 group and without middleware
-Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-Route::post('/api/v1/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+Route::post('/webhook/paystack', [PaymentCallbackController::class, 'handleWebhook']);
+Route::post('/payment-callback', [PaymentCallbackController::class, 'handleWebhook']);
+Route::post('/payments/callback', [PaymentCallbackController::class, 'handleWebhook']);
+Route::post('/api/v1/payments/callback', [PaymentCallbackController::class, 'handleWebhook']);
 
 // Public routes
 Route::prefix('v1')->group(function () {
