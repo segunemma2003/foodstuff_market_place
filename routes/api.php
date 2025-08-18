@@ -19,6 +19,10 @@ use App\Http\Controllers\Api\PaymentCallbackController;
 |--------------------------------------------------------------------------
 */
 
+// Payment webhook routes - MUST be outside the v1 group and without middleware
+Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+
 // Public routes
 Route::prefix('v1')->group(function () {
 
@@ -64,11 +68,8 @@ Route::prefix('v1')->group(function () {
     // Payment APIs
     Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
     Route::post('/payments/verify', [PaymentController::class, 'verify']);
-    // Route::post('/payments/callback', [PaymentController::class, 'callback']);
 
-    // Payment Callback APIs
-    Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-    Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']); // Alternative route for Paystack
+    // Additional Payment Callback APIs for internal use
     Route::post('/order-status-update', [PaymentCallbackController::class, 'updateOrderStatus']);
 
     // Geolocation APIs
