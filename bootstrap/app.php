@@ -28,6 +28,16 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Apply CORS globally to all routes
         $middleware->append(\App\Http\Middleware\CorsMiddleware::class);
+
+        // Exempt webhook URLs from CSRF verification
+        $middleware->validateCsrfTokens(except: [
+            'webhook/paystack',
+            'api/webhook/paystack',
+            'api/v1/webhook/paystack',
+            'payments/callback',
+            'api/payments/callback',
+            'api/v1/payments/callback',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
