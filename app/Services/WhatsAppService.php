@@ -22,6 +22,76 @@ class WhatsAppService
 
     public function sendMessage(string $phone, string $message): bool
     {
+        // First try to send via WhatsApp Bot (preferred method)
+        if ($this->sendViaWhatsAppBot($phone, $message)) {
+            return true;
+        }
+
+        // Fallback to Termii if WhatsApp Bot fails
+        return $this->sendViaTermii($phone, $message);
+    }
+
+        private function sendViaWhatsAppBot(string $phone, string $message): bool
+    {
+        try {
+            $botUrl = config('services.whatsapp_bot.url', 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com');
+
+            // Format phone number to international format
+            $formattedPhone = $this->formatPhoneNumber($phone);
+
+            $response = Http::timeout(10)->post("{$botUrl}/send-message", [
+                'phone' => $formattedPhone,
+                'message' => $message,
+            ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                if ($data['success'] ?? false) {
+                    Log::info("WhatsApp message sent via bot successfully", [
+                        'phone' => $phone,
+                        'formatted_phone' => $formattedPhone,
+                        'method' => 'whatsapp_bot',
+                    ]);
+                    return true;
+                }
+            }
+
+            Log::warning("WhatsApp bot failed, falling back to Termii", [
+                'phone' => $phone,
+                'formatted_phone' => $formattedPhone,
+                'response' => $response->body(),
+                'status' => $response->status(),
+            ]);
+            return false;
+        } catch (\Exception $e) {
+            Log::warning("WhatsApp bot error, falling back to Termii", [
+                'phone' => $phone,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    private function formatPhoneNumber(string $phone): string
+    {
+        // Remove any non-digit characters
+        $cleaned = preg_replace('/\D/', '', $phone);
+
+        // If it starts with 0, replace with 234 (Nigeria country code)
+        if (str_starts_with($cleaned, '0')) {
+            $cleaned = '234' . substr($cleaned, 1);
+        }
+
+        // If it doesn't start with country code, add 234
+        if (!str_starts_with($cleaned, '234')) {
+            $cleaned = '234' . $cleaned;
+        }
+
+        return $cleaned;
+    }
+
+    private function sendViaTermii(string $phone, string $message): bool
+    {
         try {
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
@@ -36,21 +106,22 @@ class WhatsAppService
 
             if ($response->successful()) {
                 $data = $response->json();
-                Log::info("WhatsApp message sent successfully", [
+                Log::info("WhatsApp message sent via Termii successfully", [
                     'phone' => $phone,
                     'message_id' => $data['message_id'] ?? null,
+                    'method' => 'termii',
                 ]);
                 return true;
             }
 
-            Log::error("Failed to send WhatsApp message", [
+            Log::error("Failed to send WhatsApp message via Termii", [
                 'phone' => $phone,
                 'response' => $response->body(),
                 'status' => $response->status(),
             ]);
             return false;
         } catch (\Exception $e) {
-            Log::error("WhatsApp service error", [
+            Log::error("Termii service error", [
                 'phone' => $phone,
                 'error' => $e->getMessage(),
             ]);

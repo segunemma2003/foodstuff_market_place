@@ -199,11 +199,9 @@ class OrderService
         ]);
 
         // Send WhatsApp notification to customer
-        $this->whatsAppService->sendAgentAssignment(
+        $this->whatsAppService->sendMessage(
             $order->whatsapp_number,
-            $order->order_number,
-            $availableAgent->full_name,
-            $availableAgent->phone
+            "👨‍💼 *Agent Assigned*\n\nOrder: {$order->order_number}\nAgent: {$availableAgent->full_name}\nPhone: {$availableAgent->phone}\n\nYour order has been assigned to an agent who will handle your delivery."
         );
 
         return $availableAgent;
@@ -261,7 +259,8 @@ class OrderService
 
         // Send to WhatsApp bot
         try {
-            $response = \Http::post($whatsappBotUrl . '/order-status-update', $data);
+            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+            $response = \Illuminate\Support\Facades\Http::post($whatsappBotUrl . '/order-status-update', $data);
 
             if ($response->successful()) {
                 Log::info('WhatsApp status notification sent successfully', [

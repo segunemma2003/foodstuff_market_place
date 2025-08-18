@@ -338,6 +338,7 @@ class PaymentCallbackController extends Controller
 
         // Send to WhatsApp bot
         try {
+            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
             $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
 
             if ($response->successful()) {

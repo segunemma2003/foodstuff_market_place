@@ -1087,7 +1087,8 @@ class OrderController extends Controller
 
         // Send to WhatsApp bot
         try {
-            $response = \Http::post($whatsappBotUrl . '/order-status-update', $data);
+            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+            $response = \Illuminate\Support\Facades\Http::post($whatsappBotUrl . '/order-status-update', $data);
 
             if ($response->successful()) {
                 \Log::info('WhatsApp status update sent successfully', [

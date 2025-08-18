@@ -44,4 +44,9 @@ return [
         'base_url' => env('PAYSTACK_BASE_URL', 'https://api.paystack.co'),
     ],
 
+    'whatsapp_bot' => [
+        'url' => env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com'),
+        'timeout' => env('WHATSAPP_BOT_TIMEOUT', 10),
+    ],
+
 ];
