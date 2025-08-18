@@ -45,6 +45,7 @@ class PaystackWebhookController extends Controller
                 'payload_length' => strlen($payload),
                 'signature_present' => !empty($signature),
                 'secret_configured' => !empty(config('services.paystack.secret_key')),
+                'payload_preview' => substr($payload, 0, 100), // Add payload preview for debugging
             ]);
 
             // 3. Verify signature using HMAC-SHA512
@@ -73,6 +74,7 @@ class PaystackWebhookController extends Controller
             if (!$data) {
                 Log::error('Invalid JSON in Paystack webhook payload', [
                     'payload' => $payload,
+                    'json_error' => json_last_error_msg(),
                 ]);
                 return response()->json(['error' => 'Invalid JSON'], 400);
             }
@@ -80,6 +82,7 @@ class PaystackWebhookController extends Controller
             Log::info('Paystack webhook received', [
                 'event' => $data['event'] ?? 'unknown',
                 'reference' => $data['data']['reference'] ?? 'unknown',
+                'full_data' => $data, // Add full data for debugging
             ]);
 
             // 5. Handle the event (only process events we care about)
@@ -106,6 +109,8 @@ class PaystackWebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('Error processing Paystack webhook', [
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
                 'payload' => $request->getContent(),
             ]);
@@ -123,8 +128,17 @@ class PaystackWebhookController extends Controller
         DB::beginTransaction();
 
         try {
+            // Add null checks for required fields
+            if (!isset($transactionData['reference'])) {
+                Log::error('Missing reference in transaction data', [
+                    'transaction_data' => $transactionData
+                ]);
+                DB::rollBack();
+                return;
+            }
+
             $reference = $transactionData['reference'];
-            $amount = $transactionData['amount'] / 100; // Convert from kobo to naira
+            $amount = isset($transactionData['amount']) ? $transactionData['amount'] / 100 : 0;
             $metadata = $transactionData['metadata'] ?? [];
 
             Log::info('Processing successful charge', [
@@ -166,6 +180,8 @@ class PaystackWebhookController extends Controller
             DB::rollBack();
             Log::error('Error handling charge success', [
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'reference' => $reference ?? 'unknown',
             ]);
             throw $e;
@@ -178,6 +194,14 @@ class PaystackWebhookController extends Controller
     private function handleChargeFailed(array $transactionData): void
     {
         try {
+            // Add null checks for required fields
+            if (!isset($transactionData['reference'])) {
+                Log::error('Missing reference in failed transaction data', [
+                    'transaction_data' => $transactionData
+                ]);
+                return;
+            }
+
             $reference = $transactionData['reference'];
             $metadata = $transactionData['metadata'] ?? [];
 
@@ -211,6 +235,8 @@ class PaystackWebhookController extends Controller
         } catch (\Exception $e) {
             Log::error('Error handling charge failure', [
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'reference' => $reference ?? 'unknown',
             ]);
             throw $e;
@@ -223,6 +249,14 @@ class PaystackWebhookController extends Controller
     private function assignAgentToOrder(Order $order): ?Agent
     {
         try {
+            // Add null check for market_id
+            if (empty($order->market_id)) {
+                Log::warning('Order has no market_id set', [
+                    'order_id' => $order->id,
+                ]);
+                return null;
+            }
+
             // Find available agents in the order's market
             $availableAgents = Agent::where('market_id', $order->market_id)
                 ->where('status', 'active')
@@ -262,6 +296,8 @@ class PaystackWebhookController extends Controller
             Log::error('Error assigning agent to order', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
             return null;
         }
@@ -273,6 +309,14 @@ class PaystackWebhookController extends Controller
     private function sendPaymentSuccessNotification(Order $order, ?Agent $agent): void
     {
         try {
+            // Add null check for whatsapp_number
+            if (empty($order->whatsapp_number)) {
+                Log::warning('Order has no WhatsApp number', [
+                    'order_id' => $order->id,
+                ]);
+                return;
+            }
+
             $message = "🎉 Payment Successful!\n\n";
             $message .= "Order #{$order->order_number}\n";
             $message .= "Amount: ₦" . number_format($order->total_amount, 2) . "\n";
@@ -287,8 +331,14 @@ class PaystackWebhookController extends Controller
                 $message .= "Your order is being processed and will be assigned to an agent shortly.";
             }
 
-            // Send via WhatsApp service
-            $this->whatsappService->sendMessage($order->whatsapp_number, $message);
+            // Send via WhatsApp service with additional error handling
+            if ($this->whatsappService) {
+                $this->whatsappService->sendMessage($order->whatsapp_number, $message);
+            } else {
+                Log::warning('WhatsApp service not available', [
+                    'order_id' => $order->id,
+                ]);
+            }
 
             Log::info('Payment success notification sent', [
                 'order_id' => $order->id,
@@ -299,6 +349,8 @@ class PaystackWebhookController extends Controller
             Log::error('Error sending payment success notification', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
         }
     }
@@ -309,14 +361,28 @@ class PaystackWebhookController extends Controller
     private function sendPaymentFailureNotification(Order $order): void
     {
         try {
+            // Add null check for whatsapp_number
+            if (empty($order->whatsapp_number)) {
+                Log::warning('Order has no WhatsApp number for failure notification', [
+                    'order_id' => $order->id,
+                ]);
+                return;
+            }
+
             $message = "❌ Payment Failed\n\n";
             $message .= "Order #{$order->order_number}\n";
             $message .= "Amount: ₦" . number_format($order->total_amount, 2) . "\n";
             $message .= "Status: Payment failed\n\n";
             $message .= "Please try again or contact support if the issue persists.";
 
-            // Send via WhatsApp service
-            $this->whatsappService->sendMessage($order->whatsapp_number, $message);
+            // Send via WhatsApp service with additional error handling
+            if ($this->whatsappService) {
+                $this->whatsappService->sendMessage($order->whatsapp_number, $message);
+            } else {
+                Log::warning('WhatsApp service not available for failure notification', [
+                    'order_id' => $order->id,
+                ]);
+            }
 
             Log::info('Payment failure notification sent', [
                 'order_id' => $order->id,
@@ -327,6 +393,8 @@ class PaystackWebhookController extends Controller
             Log::error('Error sending payment failure notification', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
         }
     }
