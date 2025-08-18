@@ -19,6 +19,14 @@ class PaymentCallbackController extends Controller
 
     public function handlePaymentCallback(Request $request): JsonResponse
     {
+        // Log the incoming webhook request
+        Log::info('Paystack webhook received', [
+            'headers' => $request->headers->all(),
+            'body' => $request->all(),
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+
         try {
             // Validate Paystack webhook format
             $request->validate([
@@ -30,8 +38,18 @@ class PaymentCallbackController extends Controller
                 'data.metadata' => 'nullable|array',
             ]);
 
+            Log::info('Webhook validation passed', [
+                'event' => $request->event,
+                'reference' => $request->data['reference'] ?? 'not_found',
+                'status' => $request->data['status'] ?? 'not_found',
+                'amount' => $request->data['amount'] ?? 'not_found',
+            ]);
+
             // Only process charge.success events
             if ($request->event !== 'charge.success') {
+                Log::info('Event ignored - not charge.success', [
+                    'event' => $request->event,
+                ]);
                 return response()->json([
                     'success' => true,
                     'message' => 'Event ignored: ' . $request->event,
@@ -44,6 +62,14 @@ class PaymentCallbackController extends Controller
             $amount = $transactionData['amount'] / 100; // Paystack amounts are in kobo
             $metadata = $transactionData['metadata'] ?? [];
             $sectionId = $metadata['section_id'] ?? null;
+
+            Log::info('Processing transaction data', [
+                'reference' => $reference,
+                'status' => $status,
+                'amount' => $amount,
+                'metadata' => $metadata,
+                'section_id' => $sectionId,
+            ]);
 
             // Find order by reference (Paystack reference)
             $order = Order::where('paystack_reference', $reference)->first();
