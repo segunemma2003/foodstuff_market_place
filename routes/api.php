@@ -19,10 +19,15 @@ use App\Http\Controllers\Api\PaymentCallbackController;
 |--------------------------------------------------------------------------
 */
 
+// Test route to verify routing is working
+Route::get('/test', function () {
+    return response()->json(['message' => 'API is working']);
+});
+
 // Payment webhook routes - MUST be outside the v1 group and without middleware
-Route::match(['GET', 'POST', 'PUT', 'OPTIONS'], '/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-Route::match(['GET', 'POST', 'PUT', 'OPTIONS'], '/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-Route::match(['GET', 'POST', 'PUT', 'OPTIONS'], '/api/v1/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+Route::post('/api/v1/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
 
 // Public routes
 Route::prefix('v1')->group(function () {
