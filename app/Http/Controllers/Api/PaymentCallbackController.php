@@ -28,6 +28,20 @@ class PaymentCallbackController extends Controller
         ]);
 
         try {
+            // Verify Paystack signature
+            if (!$this->verifyPaystackSignature($request)) {
+                Log::warning('Paystack signature verification failed', [
+                    'ip' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid signature',
+                ], 401);
+            }
+
+            Log::info('Paystack signature verified successfully');
+
             // Validate Paystack webhook format
             $request->validate([
                 'event' => 'required|string',
@@ -535,5 +549,39 @@ class PaymentCallbackController extends Controller
         } catch (\Exception $e) {
             Log::error('Error sending payment failure notification: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Verify Paystack webhook signature
+     */
+    private function verifyPaystackSignature(Request $request): bool
+    {
+        $signature = $request->header('X-Paystack-Signature');
+        $payload = $request->getContent();
+
+        Log::info('Verifying Paystack signature', [
+            'signature_header' => $signature,
+            'payload_length' => strlen($payload),
+        ]);
+
+        // Get the secret from environment
+        $secret = env('PAYSTACK_WEBHOOK_SECRET');
+
+        if (empty($secret)) {
+            Log::error('PAYSTACK_WEBHOOK_SECRET not configured in environment');
+            return false;
+        }
+
+        // Calculate expected signature
+        $expectedSignature = hash_hmac('sha512', $payload, $secret);
+
+        Log::info('Signature verification details', [
+            'received_signature' => $signature,
+            'expected_signature' => $expectedSignature,
+            'signature_match' => hash_equals($expectedSignature, $signature),
+        ]);
+
+        // Use hash_equals for timing attack protection
+        return hash_equals($expectedSignature, $signature);
     }
 }
