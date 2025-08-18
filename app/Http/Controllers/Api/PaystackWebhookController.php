@@ -26,6 +26,16 @@ class PaystackWebhookController extends Controller
      */
     public function handle(Request $request)
     {
+         Log::info('=== PAYSTACK WEBHOOK STARTED ===');
+        Log::info('Webhook received', [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'headers' => $request->headers->all(),
+            'body_size' => strlen($request->getContent())
+        ]);
+
+        // Verify the webhook signature
+        Log::info('Verifying Paystack signature...');
         try {
             // Log incoming request for debugging
             Log::info('Paystack webhook request received', [
