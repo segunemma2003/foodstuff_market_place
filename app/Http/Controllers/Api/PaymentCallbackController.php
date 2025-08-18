@@ -101,13 +101,18 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Automatically assign an agent (if available) - temporarily disabled for testing
-                // try {
-                //     $this->assignAgentToOrder($order);
-                // } catch (\Exception $e) {
-                //     Log::warning('Could not assign agent automatically: ' . $e->getMessage());
-                //     // Continue with payment processing even if agent assignment fails
-                // }
+                // Automatically assign an agent (if available)
+                try {
+                    $this->assignAgentToOrder($order);
+                } catch (\Exception $e) {
+                    Log::warning('Could not assign agent automatically: ' . $e->getMessage(), [
+                        'order_id' => $order->id,
+                        'market_id' => $order->market_id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                    // Continue with payment processing even if agent assignment fails
+                }
 
                 // Send success notification to WhatsApp bot (temporarily disabled due to bot URL issue)
                 // $this->sendWhatsAppNotification(
@@ -277,6 +282,11 @@ class PaymentCallbackController extends Controller
 
     private function assignAgentToOrder(Order $order): void
     {
+        Log::info('Attempting to assign agent to order', [
+            'order_id' => $order->id,
+            'market_id' => $order->market_id,
+        ]);
+
         // Find available agent in the market
         $availableAgent = Agent::where('market_id', $order->market_id)
             ->where('is_active', true)
@@ -287,10 +297,18 @@ class PaymentCallbackController extends Controller
             Log::warning('No available agents for order', [
                 'order_id' => $order->id,
                 'market_id' => $order->market_id,
+                'available_agents_count' => Agent::where('market_id', $order->market_id)->count(),
+                'active_agents_count' => Agent::where('market_id', $order->market_id)->where('is_active', true)->count(),
             ]);
             // Don't throw exception, just return without assigning agent
             return;
         }
+
+        Log::info('Found available agent', [
+            'order_id' => $order->id,
+            'agent_id' => $availableAgent->id,
+            'agent_name' => $availableAgent->full_name,
+        ]);
 
         // Update order with agent
         $order->update([
@@ -308,16 +326,10 @@ class PaymentCallbackController extends Controller
             'status' => 'pending',
         ]);
 
-                        // Send agent assignment notification to WhatsApp bot (temporarily disabled due to bot URL issue)
-                // $this->sendWhatsAppNotification(
-                //     $order->whatsapp_number,
-                //     $order->order_number,
-                //     'assigned',
-                //     "Agent {$availableAgent->full_name} has been assigned to your order",
-                //     $order->whatsappSession->section_id ?? null
-                // );
+        // Send agent assignment notification using the new format
+        $this->sendWhatsAppStatusUpdate($order);
 
-        Log::info('Agent assigned to order', [
+        Log::info('Agent assigned to order successfully', [
             'order_id' => $order->id,
             'agent_id' => $availableAgent->id,
             'agent_name' => $availableAgent->full_name,
@@ -354,6 +366,68 @@ class PaymentCallbackController extends Controller
             }
         } catch (\Exception $e) {
             Log::error('Error sending WhatsApp status notification: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send WhatsApp status update using the new format
+     */
+    private function sendWhatsAppStatusUpdate(Order $order): void
+    {
+        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
+
+        // Load the agent relationship if not already loaded
+        if (!$order->relationLoaded('agent')) {
+            $order->load('agent');
+        }
+
+        $statusMessages = [
+            'pending' => 'Your order is being processed.',
+            'confirmed' => 'Your order has been confirmed!',
+            'paid' => 'Payment received! Your order is being prepared.',
+            'assigned' => 'An agent has been assigned to your order.',
+            'preparing' => 'Your order is being prepared.',
+            'ready_for_delivery' => 'Your order is ready for delivery!',
+            'out_for_delivery' => 'Your order is on its way to you!',
+            'delivered' => 'Your order has been delivered! Enjoy your meal!',
+            'cancelled' => 'Your order has been cancelled.',
+            'failed' => 'There was an issue with your order.',
+            'completed' => 'Your order has been completed successfully!',
+        ];
+
+        $message = $statusMessages[$order->status] ?? 'Your order status has been updated.';
+
+        // Add agent information to the message if status is 'assigned' and agent exists
+        if ($order->status === 'assigned' && $order->agent) {
+            $message = "An agent has been assigned to your order.\n\nAgent: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
+        }
+
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'message' => $message,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                Log::info('WhatsApp status update sent successfully', [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                ]);
+            } else {
+                Log::error('Failed to send WhatsApp status update', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
         }
     }
 }
