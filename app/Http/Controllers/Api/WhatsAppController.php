@@ -444,21 +444,25 @@ class WhatsAppController extends Controller
             });
 
             $formattedProducts = $products->map(function($marketProduct) {
+                // Add null checks to prevent errors
+                $product = $marketProduct->product;
+                $category = $product ? $product->category : null;
+
                 return [
                     'id' => $marketProduct->id,
                     'product_id' => $marketProduct->product_id,
-                    'name' => $marketProduct->product->name,
-                    'description' => $marketProduct->product->description,
-                    'image' => $marketProduct->product->image,
-                    'category' => $marketProduct->product->category->name ?? null,
-                    'prices' => $marketProduct->prices->map(function($price) {
+                    'name' => $product ? $product->name : ($marketProduct->product_name ?? 'Unknown Product'),
+                    'description' => $product ? $product->description : null,
+                    'image' => $product ? $product->image : null,
+                    'category' => $category ? $category->name : null,
+                    'prices' => $marketProduct->prices ? $marketProduct->prices->map(function($price) {
                         return [
                             'id' => $price->id,
                             'measurement_scale' => $price->measurement_scale,
                             'price' => $price->price,
                             'unit' => $price->unit,
                         ];
-                    }),
+                    }) : [],
                     'is_available' => $marketProduct->is_available,
                     'stock_quantity' => $marketProduct->stock_quantity,
                 ];
@@ -476,10 +480,16 @@ class WhatsAppController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error getting market products: ' . $e->getMessage());
+            Log::error('Error getting market products: ' . $e->getMessage(), [
+                'market_id' => $request->market_id,
+                'section_id' => $request->section_id,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Error retrieving products',
+                'message' => 'Error retrieving products: ' . $e->getMessage(),
             ], 500);
         }
     }
