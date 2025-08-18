@@ -234,47 +234,31 @@ class PaymentCallbackController extends Controller
             if (!$session) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Section not found',
+                    'message' => 'Session not found',
                 ], 404);
             }
 
-            $order = $session->order;
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found for this section',
-                ], 404);
-            }
-
-            // Update order status
-            $order->updateStatus($request->status, $request->message ?? '');
-
-            // Update session status based on order status
-            $sessionStatus = $this->mapOrderStatusToSessionStatus($request->status);
+            // Update session status
             $session->update([
-                'status' => $sessionStatus,
+                'status' => $request->status,
                 'last_activity' => now(),
             ]);
 
-            // Send WhatsApp notification
-            $this->sendStatusNotification($session, $request->status, $request->message);
-
-            Log::info('Order status updated', [
-                'section_id' => $request->section_id,
-                'order_number' => $order->order_number,
-                'status' => $request->status,
-                'message' => $request->message,
-            ]);
+            // If agent_id is provided, update the order
+            if ($request->agent_id && $session->order_id) {
+                $order = Order::find($session->order_id);
+                if ($order) {
+                    $order->update(['agent_id' => $request->agent_id]);
+                }
+            }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Order status updated successfully',
-                'order_status' => $request->status,
-                'session_status' => $sessionStatus,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Order status update error: ' . $e->getMessage());
+            Log::error('Error updating order status: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error updating order status',
@@ -314,6 +298,46 @@ class PaymentCallbackController extends Controller
             $message,
             $session->section_id
         );
+    }
+
+    /**
+     * Verify Paystack webhook signature
+     */
+    private function verifyPaystackSignature(Request $request): bool
+    {
+        $signature = $request->header('X-Paystack-Signature');
+        $payload = $request->getContent();
+
+        Log::info('Verifying Paystack signature', [
+            'signature_header' => $signature,
+            'payload_length' => strlen($payload),
+            'payload_sample' => substr($payload, 0, 200) . '...',
+        ]);
+
+        if (empty($signature)) {
+            Log::error('No signature header found');
+            return false;
+        }
+
+        // Get the secret from environment
+        $secret = env('PAYSTACK_WEBHOOK_SECRET');
+
+        if (empty($secret)) {
+            Log::error('PAYSTACK_WEBHOOK_SECRET not configured in environment');
+            return false;
+        }
+
+        // Calculate expected signature
+        $expectedSignature = hash_hmac('sha512', $payload, $secret);
+
+        Log::info('Signature verification details', [
+            'received_signature' => $signature,
+            'expected_signature' => $expectedSignature,
+            'signature_match' => hash_equals($expectedSignature, $signature),
+        ]);
+
+        // Use hash_equals for timing attack protection
+        return hash_equals($expectedSignature, $signature);
     }
 
     private function assignAgentToOrder(Order $order): void
@@ -549,39 +573,5 @@ class PaymentCallbackController extends Controller
         } catch (\Exception $e) {
             Log::error('Error sending payment failure notification: ' . $e->getMessage());
         }
-    }
-
-    /**
-     * Verify Paystack webhook signature
-     */
-    private function verifyPaystackSignature(Request $request): bool
-    {
-        $signature = $request->header('X-Paystack-Signature');
-        $payload = $request->getContent();
-
-        Log::info('Verifying Paystack signature', [
-            'signature_header' => $signature,
-            'payload_length' => strlen($payload),
-        ]);
-
-        // Get the secret from environment
-        $secret = env('PAYSTACK_WEBHOOK_SECRET');
-
-        if (empty($secret)) {
-            Log::error('PAYSTACK_WEBHOOK_SECRET not configured in environment');
-            return false;
-        }
-
-        // Calculate expected signature
-        $expectedSignature = hash_hmac('sha512', $payload, $secret);
-
-        Log::info('Signature verification details', [
-            'received_signature' => $signature,
-            'expected_signature' => $expectedSignature,
-            'signature_match' => hash_equals($expectedSignature, $signature),
-        ]);
-
-        // Use hash_equals for timing attack protection
-        return hash_equals($expectedSignature, $signature);
     }
 }

@@ -68,6 +68,7 @@ Route::prefix('v1')->group(function () {
 
     // Payment Callback APIs
     Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+    Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']); // Alternative route for Paystack
     Route::post('/order-status-update', [PaymentCallbackController::class, 'updateOrderStatus']);
 
     // Geolocation APIs
