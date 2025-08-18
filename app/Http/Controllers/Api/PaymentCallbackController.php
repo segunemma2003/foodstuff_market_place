@@ -11,11 +11,16 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Yabacon\Paystack;
 
 class PaymentCallbackController extends Controller
 {
+    protected $paystack;
+
     public function __construct()
-    {}
+    {
+        $this->paystack = new Paystack(config('services.paystack.secret_key'));
+    }
 
     public function handlePaymentCallback(Request $request): JsonResponse
     {
@@ -46,9 +51,29 @@ class PaymentCallbackController extends Controller
         ]);
 
         try {
-            // Verify Paystack signature
-            if (!$this->verifyPaystackSignature($request)) {
-                Log::warning('Paystack signature verification failed', [
+            // Use Paystack's built-in webhook verification
+            $webhookSecret = config('services.paystack.webhook_secret');
+            if (!$webhookSecret) {
+                Log::error('Paystack webhook secret not configured');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Webhook secret not configured',
+                ], 500);
+            }
+
+            // Get the raw request body
+            $rawBody = $request->getContent();
+            $signature = $request->header('X-Paystack-Signature');
+
+            Log::info('Webhook verification details', [
+                'raw_body_length' => strlen($rawBody),
+                'signature' => $signature,
+                'webhook_secret_configured' => !empty($webhookSecret),
+            ]);
+
+            // Verify the webhook signature using Paystack's method
+            if (!$this->verifyWebhookSignature($rawBody, $signature, $webhookSecret)) {
+                Log::warning('Paystack webhook signature verification failed', [
                     'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
                     'method' => $request->method(),
@@ -59,37 +84,35 @@ class PaymentCallbackController extends Controller
                 ], 401);
             }
 
-            Log::info('Paystack signature verified successfully');
+            Log::info('Paystack webhook signature verified successfully');
 
-            // Validate Paystack webhook format
-            $request->validate([
-                'event' => 'required|string',
-                'data' => 'required|array',
-                'data.reference' => 'required|string',
-                'data.status' => 'required|string',
-                'data.amount' => 'required|numeric',
-                'data.metadata' => 'nullable|array',
-            ]);
+            // Parse the webhook data
+            $webhookData = json_decode($rawBody, true);
+            if (!$webhookData) {
+                Log::error('Invalid JSON in webhook body');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid JSON',
+                ], 400);
+            }
 
-            Log::info('Webhook validation passed', [
-                'event' => $request->event,
-                'reference' => $request->data['reference'] ?? 'not_found',
-                'status' => $request->data['status'] ?? 'not_found',
-                'amount' => $request->data['amount'] ?? 'not_found',
+            Log::info('Webhook data parsed', [
+                'event' => $webhookData['event'] ?? 'not_found',
+                'data_keys' => array_keys($webhookData['data'] ?? []),
             ]);
 
             // Only process charge.success events
-            if ($request->event !== 'charge.success') {
+            if (($webhookData['event'] ?? '') !== 'charge.success') {
                 Log::info('Event ignored - not charge.success', [
-                    'event' => $request->event,
+                    'event' => $webhookData['event'] ?? 'not_found',
                 ]);
                 return response()->json([
                     'success' => true,
-                    'message' => 'Event ignored: ' . $request->event,
+                    'message' => 'Event ignored: ' . ($webhookData['event'] ?? 'unknown'),
                 ]);
             }
 
-            $transactionData = $request->data;
+            $transactionData = $webhookData['data'];
             $reference = $transactionData['reference'];
             $status = $transactionData['status'];
             $amount = $transactionData['amount'] / 100; // Paystack amounts are in kobo
@@ -109,7 +132,7 @@ class PaymentCallbackController extends Controller
             if (!$order) {
                 Log::warning('Order not found for Paystack reference', [
                     'reference' => $reference,
-                    'event' => $request->event,
+                    'event' => $webhookData['event'],
                 ]);
                 return response()->json([
                     'success' => false,
@@ -132,108 +155,67 @@ class PaymentCallbackController extends Controller
                     ->first();
             }
 
-            if (!$session) {
-                Log::warning('WhatsApp session not found for order', [
-                    'order_id' => $order->id,
-                    'whatsapp_number' => $order->whatsapp_number,
-                    'section_id' => $sectionId,
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'message' => 'WhatsApp session not found for this order',
-                ], 404);
-            }
+            Log::info('Order and session found', [
+                'order_id' => $order->id,
+                'order_status' => $order->status,
+                'session_found' => $session ? true : false,
+                'session_id' => $session?->id,
+            ]);
 
+            // Update order status based on Paystack status
             if ($status === 'success') {
-                // Update order status
-                $order->update([
-                    'status' => 'paid',
-                    'payment_reference' => $reference,
-                    'paystack_reference' => $reference,
-                    'paid_at' => now(),
-                ]);
+                $order->status = 'paid';
+                $order->payment_status = 'paid';
+                $order->paid_at = now();
+                $order->save();
 
-                // Update session status and link order_id
-                $session->update([
-                    'status' => 'paid',
+                Log::info('Order marked as paid', [
                     'order_id' => $order->id,
-                    'last_activity' => now(),
-                ]);
-
-                // Automatically assign an agent (if available)
-                try {
-                    $this->assignAgentToOrder($order);
-                } catch (\Exception $e) {
-                    Log::warning('Could not assign agent automatically: ' . $e->getMessage(), [
-                        'order_id' => $order->id,
-                        'market_id' => $order->market_id,
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
-                    ]);
-                    // Continue with payment processing even if agent assignment fails
-                }
-
-                // Send payment success notification with agent details
-                try {
-                    $this->sendPaymentSuccessNotification($order, $session);
-                } catch (\Exception $e) {
-                    Log::error('Failed to send payment success notification: ' . $e->getMessage());
-                }
-
-                Log::info('Payment successful', [
-                    'section_id' => $sectionId,
-                    'order_number' => $order->order_number,
-                    'amount' => $amount,
                     'reference' => $reference,
                 ]);
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Payment processed successfully',
-                    'order_status' => 'paid',
-                    'section_status' => 'paid',
-                ]);
+                // Assign agent to the order
+                $assignedAgent = $this->assignAgentToOrder($order);
+                if ($assignedAgent) {
+                    Log::info('Agent assigned to order', [
+                        'order_id' => $order->id,
+                        'agent_id' => $assignedAgent->id,
+                        'agent_name' => $assignedAgent->full_name,
+                    ]);
+                }
 
-            } else {
-                // Payment failed or other status
-                $order->update([
-                    'status' => 'payment_failed',
-                    'payment_reference' => $reference,
-                ]);
+                // Send payment success notification
+                $this->sendPaymentSuccessNotification($order, $assignedAgent);
 
-                // Update session status
-                $session->update([
-                    'status' => 'payment_failed',
-                    'last_activity' => now(),
+            } elseif ($status === 'failed') {
+                $order->status = 'failed';
+                $order->payment_status = 'failed';
+                $order->save();
+
+                Log::info('Order marked as failed', [
+                    'order_id' => $order->id,
+                    'reference' => $reference,
                 ]);
 
                 // Send payment failure notification
-                try {
-                    $this->sendPaymentFailureNotification($order, $session);
-                } catch (\Exception $e) {
-                    Log::error('Failed to send payment failure notification: ' . $e->getMessage());
-                }
-
-                Log::warning('Payment failed', [
-                    'section_id' => $sectionId,
-                    'order_number' => $order->order_number,
-                    'status' => $status,
-                    'reference' => $reference,
-                ]);
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Payment failure recorded',
-                    'order_status' => 'payment_failed',
-                    'section_status' => 'payment_failed',
-                ]);
+                $this->sendPaymentFailureNotification($order);
             }
 
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook processed successfully',
+            ]);
+
         } catch (\Exception $e) {
-            Log::error('Payment callback error: ' . $e->getMessage());
+            Log::error('Error processing Paystack webhook', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error processing payment callback',
+                'message' => 'Internal server error',
             ], 500);
         }
     }
@@ -322,97 +304,69 @@ class PaymentCallbackController extends Controller
     /**
      * Verify Paystack webhook signature
      */
-    private function verifyPaystackSignature(Request $request): bool
+    private function verifyWebhookSignature(string $rawBody, ?string $signature, string $secret): bool
     {
-        $signature = $request->header('X-Paystack-Signature');
-        $payload = $request->getContent();
-
-        Log::info('Verifying Paystack signature', [
-            'signature_header' => $signature,
-            'payload_length' => strlen($payload),
-            'payload_sample' => substr($payload, 0, 200) . '...',
-        ]);
-
-        if (empty($signature)) {
-            Log::error('No signature header found');
+        if (!$signature) {
+            Log::warning('No Paystack signature header found');
             return false;
         }
 
-        // Get the secret from environment
-        $secret = env('PAYSTACK_WEBHOOK_SECRET');
+        $expectedSignature = hash_hmac('sha512', $rawBody, $secret);
 
-        if (empty($secret)) {
-            Log::error('PAYSTACK_WEBHOOK_SECRET not configured in environment');
-            return false;
-        }
-
-        // Calculate expected signature
-        $expectedSignature = hash_hmac('sha512', $payload, $secret);
-
-        Log::info('Signature verification details', [
-            'received_signature' => $signature,
-            'expected_signature' => $expectedSignature,
-            'signature_match' => hash_equals($expectedSignature, $signature),
+        Log::info('Signature verification', [
+            'expected' => $expectedSignature,
+            'received' => $signature,
+            'matches' => hash_equals($expectedSignature, $signature),
         ]);
 
-        // Use hash_equals for timing attack protection
         return hash_equals($expectedSignature, $signature);
     }
 
-    private function assignAgentToOrder(Order $order): void
+    /**
+     * Assign an agent to the order
+     */
+    private function assignAgentToOrder(Order $order): ?Agent
     {
-        Log::info('Attempting to assign agent to order', [
-            'order_id' => $order->id,
-            'market_id' => $order->market_id,
-        ]);
+        try {
+            // Find available agents in the order's market
+            $availableAgents = Agent::where('market_id', $order->market_id)
+                ->where('status', 'active')
+                ->where('is_available', true)
+                ->get();
 
-        // Find available agent in the market
-        $availableAgent = Agent::where('market_id', $order->market_id)
-            ->where('is_active', true)
-            ->where('is_suspended', false)
-            ->first();
-
-        if (!$availableAgent) {
-            Log::warning('No available agents for order', [
-                'order_id' => $order->id,
+            Log::info('Available agents found', [
                 'market_id' => $order->market_id,
-                'available_agents_count' => Agent::where('market_id', $order->market_id)->count(),
-                'active_agents_count' => Agent::where('market_id', $order->market_id)->where('is_active', true)->count(),
+                'count' => $availableAgents->count(),
             ]);
-            // Don't throw exception, just return without assigning agent
-            return;
+
+            if ($availableAgents->isEmpty()) {
+                Log::warning('No available agents found for market', [
+                    'market_id' => $order->market_id,
+                ]);
+                return null;
+            }
+
+            // Select the first available agent (you can implement more sophisticated logic)
+            $agent = $availableAgents->first();
+
+            // Update order with agent assignment
+            $order->agent_id = $agent->id;
+            $order->status = 'assigned';
+            $order->assigned_at = now();
+            $order->save();
+
+            // Send WhatsApp notification about agent assignment
+            $this->sendWhatsAppStatusUpdate($order, 'assigned');
+
+            return $agent;
+
+        } catch (\Exception $e) {
+            Log::error('Error assigning agent to order', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
         }
-
-        Log::info('Found available agent', [
-            'order_id' => $order->id,
-            'agent_id' => $availableAgent->id,
-            'agent_name' => $availableAgent->full_name,
-        ]);
-
-        // Update order with agent
-        $order->update([
-            'agent_id' => $availableAgent->id,
-        ]);
-
-        // Update order status to assigned
-        $order->updateStatus('assigned', "Order assigned to agent {$availableAgent->full_name}");
-
-        // Create agent earning record
-        AgentEarning::create([
-            'agent_id' => $availableAgent->id,
-            'order_id' => $order->id,
-            'amount' => $order->total_amount * 0.1, // 10% commission
-            'status' => 'pending',
-        ]);
-
-        // Send agent assignment notification using the new format
-        $this->sendWhatsAppStatusUpdate($order);
-
-        Log::info('Agent assigned to order successfully', [
-            'order_id' => $order->id,
-            'agent_id' => $availableAgent->id,
-            'agent_name' => $availableAgent->full_name,
-        ]);
     }
 
     private function sendWhatsAppNotification(string $whatsappNumber, string $orderNumber, string $status, string $message, ?string $sectionId = null): void
@@ -449,148 +403,111 @@ class PaymentCallbackController extends Controller
     }
 
     /**
-     * Send WhatsApp status update using the new format
+     * Send WhatsApp status update
      */
-    private function sendWhatsAppStatusUpdate(Order $order): void
+    private function sendWhatsAppStatusUpdate(Order $order, string $status): void
     {
-        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
-
-        // Load the agent relationship if not already loaded
-        if (!$order->relationLoaded('agent')) {
-            $order->load('agent');
-        }
-
-        $statusMessages = [
-            'pending' => 'Your order is being processed.',
-            'confirmed' => 'Your order has been confirmed!',
-            'paid' => 'Payment received! Your order is being prepared.',
-            'assigned' => 'An agent has been assigned to your order.',
-            'preparing' => 'Your order is being prepared.',
-            'ready_for_delivery' => 'Your order is ready for delivery!',
-            'out_for_delivery' => 'Your order is on its way to you!',
-            'delivered' => 'Your order has been delivered! Enjoy your meal!',
-            'cancelled' => 'Your order has been cancelled.',
-            'failed' => 'There was an issue with your order.',
-            'completed' => 'Your order has been completed successfully!',
-        ];
-
-        $message = $statusMessages[$order->status] ?? 'Your order status has been updated.';
-
-        // Add agent information to the message if status is 'assigned' and agent exists
-        if ($order->status === 'assigned' && $order->agent) {
-            $message = "An agent has been assigned to your order.\n\nAgent: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
-        }
-
-        $data = [
-            'order_id' => $order->id,
-            'order_number' => $order->order_number,
-            'status' => $order->status,
-            'message' => $message,
-            'whatsapp_number' => $order->whatsapp_number,
-        ];
-
-        // Send to WhatsApp bot
         try {
-            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
-            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+            $statusMessages = [
+                'assigned' => "Your order #{$order->order_number} has been assigned to an agent and is being prepared.",
+                'preparing' => "Your order #{$order->order_number} is being prepared.",
+                'ready' => "Your order #{$order->order_number} is ready for pickup/delivery.",
+                'delivering' => "Your order #{$order->order_number} is out for delivery.",
+                'delivered' => "Your order #{$order->order_number} has been delivered. Thank you for your business!",
+                'cancelled' => "Your order #{$order->order_number} has been cancelled.",
+            ];
 
-            if ($response->successful()) {
-                Log::info('WhatsApp status update sent successfully', [
-                    'order_id' => $order->id,
-                    'status' => $order->status,
-                ]);
-            } else {
-                Log::error('Failed to send WhatsApp status update', [
-                    'order_id' => $order->id,
-                    'response' => $response->body(),
-                ]);
+            $message = $statusMessages[$status] ?? "Your order #{$order->order_number} status has been updated to: {$status}";
+
+            // Add agent details for assigned status
+            if ($status === 'assigned' && $order->agent) {
+                $message .= "\n\nAssigned Agent:\n";
+                $message .= "Name: {$order->agent->full_name}\n";
+                $message .= "Phone: {$order->agent->phone}";
             }
+
+            // Send via WhatsApp service
+            $whatsappService = app(\App\Services\WhatsAppService::class);
+            $whatsappService->sendMessage($order->whatsapp_number, $message);
+
+            Log::info('WhatsApp status update sent', [
+                'order_id' => $order->id,
+                'status' => $status,
+                'phone' => $order->whatsapp_number,
+            ]);
+
         } catch (\Exception $e) {
-            Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
+            Log::error('Error sending WhatsApp status update', [
+                'order_id' => $order->id,
+                'status' => $status,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
     /**
-     * Send payment success notification with agent details
+     * Send payment success notification
      */
-    private function sendPaymentSuccessNotification(Order $order, WhatsappSession $session): void
+    private function sendPaymentSuccessNotification(Order $order, ?Agent $agent): void
     {
-        $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
-
-        // Load the agent relationship if not already loaded
-        if (!$order->relationLoaded('agent')) {
-            $order->load('agent');
-        }
-
-        $message = "Payment confirmed! Your order has been paid successfully.\n\nOrder: {$order->order_number}\nAmount: ₦" . number_format($order->total_amount / 100, 2);
-
-        // Add agent information if agent is assigned
-        if ($order->agent) {
-            $message .= "\n\nAgent assigned: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
-        }
-
-        $data = [
-            'order_id' => $order->id,
-            'order_number' => $order->order_number,
-            'status' => 'paid',
-            'message' => $message,
-            'whatsapp_number' => $order->whatsapp_number,
-        ];
-
-        // Send to WhatsApp bot
         try {
-            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+            $message = "🎉 Payment Successful!\n\n";
+            $message .= "Order #{$order->order_number}\n";
+            $message .= "Amount: ₦" . number_format($order->total_amount, 2) . "\n";
+            $message .= "Status: Payment confirmed\n\n";
 
-            if ($response->successful()) {
-                Log::info('Payment success notification sent successfully', [
-                    'order_id' => $order->id,
-                    'order_number' => $order->order_number,
-                ]);
+            if ($agent) {
+                $message .= "Your order has been assigned to:\n";
+                $message .= "Agent: {$agent->full_name}\n";
+                $message .= "Phone: {$agent->phone}\n\n";
+                $message .= "You will be contacted shortly for delivery.";
             } else {
-                Log::error('Failed to send payment success notification', [
-                    'order_id' => $order->id,
-                    'response' => $response->body(),
-                ]);
+                $message .= "Your order is being processed and will be assigned to an agent shortly.";
             }
+
+            // Send via WhatsApp service
+            $whatsappService = app(\App\Services\WhatsAppService::class);
+            $whatsappService->sendMessage($order->whatsapp_number, $message);
+
+            Log::info('Payment success notification sent', [
+                'order_id' => $order->id,
+                'phone' => $order->whatsapp_number,
+            ]);
+
         } catch (\Exception $e) {
-            Log::error('Error sending payment success notification: ' . $e->getMessage());
+            Log::error('Error sending payment success notification', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
     /**
      * Send payment failure notification
      */
-    private function sendPaymentFailureNotification(Order $order, WhatsappSession $session): void
+    private function sendPaymentFailureNotification(Order $order): void
     {
-        $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
-
-        $message = "Payment failed! Your order payment was not successful.\n\nOrder: {$order->order_number}\nAmount: ₦" . number_format($order->total_amount / 100, 2) . "\n\nPlease try again or contact support.";
-
-        $data = [
-            'order_id' => $order->id,
-            'order_number' => $order->order_number,
-            'status' => 'payment_failed',
-            'message' => $message,
-            'whatsapp_number' => $order->whatsapp_number,
-        ];
-
-        // Send to WhatsApp bot
         try {
-            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+            $message = "❌ Payment Failed\n\n";
+            $message .= "Order #{$order->order_number}\n";
+            $message .= "Amount: ₦" . number_format($order->total_amount, 2) . "\n";
+            $message .= "Status: Payment failed\n\n";
+            $message .= "Please try again or contact support if the issue persists.";
 
-            if ($response->successful()) {
-                Log::info('Payment failure notification sent successfully', [
-                    'order_id' => $order->id,
-                    'order_number' => $order->order_number,
-                ]);
-            } else {
-                Log::error('Failed to send payment failure notification', [
-                    'order_id' => $order->id,
-                    'response' => $response->body(),
-                ]);
-            }
+            // Send via WhatsApp service
+            $whatsappService = app(\App\Services\WhatsAppService::class);
+            $whatsappService->sendMessage($order->whatsapp_number, $message);
+
+            Log::info('Payment failure notification sent', [
+                'order_id' => $order->id,
+                'phone' => $order->whatsapp_number,
+            ]);
+
         } catch (\Exception $e) {
-            Log::error('Error sending payment failure notification: ' . $e->getMessage());
+            Log::error('Error sending payment failure notification', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }
