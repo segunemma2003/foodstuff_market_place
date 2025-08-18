@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use App\Models\WhatsappSession; // Added this import
 
 class OrderController extends Controller
@@ -983,6 +984,13 @@ class OrderController extends Controller
         try {
             $order->updateStatus($request->status, $request->message ?? '');
 
+            // Send WhatsApp notification about status update
+            try {
+                $this->sendWhatsAppStatusUpdate($order);
+            } catch (\Exception $e) {
+                Log::error('Failed to send WhatsApp status update: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Order status updated successfully',
@@ -1025,7 +1033,7 @@ class OrderController extends Controller
         try {
             $this->sendWhatsAppStatusUpdate($order);
         } catch (\Exception $e) {
-            \Log::error('Failed to send WhatsApp status update: ' . $e->getMessage());
+            Log::error('Failed to send WhatsApp status update: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -1091,18 +1099,18 @@ class OrderController extends Controller
             $response = \Illuminate\Support\Facades\Http::post($whatsappBotUrl . '/order-status-update', $data);
 
             if ($response->successful()) {
-                \Log::info('WhatsApp status update sent successfully', [
+                Log::info('WhatsApp status update sent successfully', [
                     'order_id' => $order->id,
                     'status' => $order->status,
                 ]);
             } else {
-                \Log::error('Failed to send WhatsApp status update', [
+                Log::error('Failed to send WhatsApp status update', [
                     'order_id' => $order->id,
                     'response' => $response->body(),
                 ]);
             }
         } catch (\Exception $e) {
-            \Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
+            Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
         }
     }
 }
