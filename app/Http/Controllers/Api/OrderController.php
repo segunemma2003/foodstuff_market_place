@@ -1069,6 +1069,11 @@ class OrderController extends Controller
     {
         $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
 
+        // Load the agent relationship if not already loaded
+        if (!$order->relationLoaded('agent')) {
+            $order->load('agent');
+        }
+
         $statusMessages = [
             'pending' => 'Your order is being processed.',
             'confirmed' => 'Your order has been confirmed!',
@@ -1084,6 +1089,11 @@ class OrderController extends Controller
         ];
 
         $message = $statusMessages[$order->status] ?? 'Your order status has been updated.';
+
+        // Add agent information to the message if status is 'assigned' and agent exists
+        if ($order->status === 'assigned' && $order->agent) {
+            $message = "An agent has been assigned to your order.\n\nAgent: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
+        }
 
         $data = [
             'order_id' => $order->id,
