@@ -27,20 +27,42 @@ class PaystackWebhookController extends Controller
     public function handle(Request $request): JsonResponse
     {
         try {
+            // Log incoming request for debugging
+            Log::info('Paystack webhook request received', [
+                'method' => $request->method(),
+                'headers' => $request->headers->all(),
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+
             // 1. Get the raw request body (exactly as Paystack docs say)
             $payload = $request->getContent();
 
             // 2. Get the signature header
             $signature = $request->header('X-Paystack-Signature');
 
+            Log::info('Webhook verification details', [
+                'payload_length' => strlen($payload),
+                'signature_present' => !empty($signature),
+                'secret_configured' => !empty(config('services.paystack.secret_key')),
+            ]);
+
             // 3. Verify signature using HMAC-SHA512
             $secret = config('services.paystack.secret_key');
+
+            if (empty($secret)) {
+                Log::error('Paystack secret key not configured');
+                return response()->json(['error' => 'Secret key not configured'], 500);
+            }
+
             $expectedSignature = hash_hmac('sha512', $payload, $secret);
 
             if (!hash_equals($expectedSignature, $signature)) {
                 Log::warning('Paystack webhook signature verification failed', [
                     'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
+                    'expected' => $expectedSignature,
+                    'received' => $signature,
                 ]);
                 return response()->json(['error' => 'Invalid signature'], 401);
             }
@@ -49,7 +71,9 @@ class PaystackWebhookController extends Controller
             $data = json_decode($payload, true);
 
             if (!$data) {
-                Log::error('Invalid JSON in Paystack webhook payload');
+                Log::error('Invalid JSON in Paystack webhook payload', [
+                    'payload' => $payload,
+                ]);
                 return response()->json(['error' => 'Invalid JSON'], 400);
             }
 
@@ -83,6 +107,7 @@ class PaystackWebhookController extends Controller
             Log::error('Error processing Paystack webhook', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'payload' => $request->getContent(),
             ]);
 
             // Return 500 for server errors (Paystack will retry)
@@ -121,7 +146,6 @@ class PaystackWebhookController extends Controller
 
             // Update order status
             $order->status = 'paid';
-            $order->payment_status = 'paid';
             $order->paid_at = now();
             $order->save();
 
@@ -174,7 +198,6 @@ class PaystackWebhookController extends Controller
 
             // Update order status
             $order->status = 'failed';
-            $order->payment_status = 'failed';
             $order->save();
 
             Log::info('Order marked as failed', [
