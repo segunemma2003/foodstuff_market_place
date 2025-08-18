@@ -226,6 +226,13 @@ class AgentController extends Controller
 
         $order->updateStatus($request->status, $request->message ?? '');
 
+        // Send WhatsApp notification about status update
+        try {
+            $this->sendWhatsAppStatusUpdate($order);
+        } catch (\Exception $e) {
+            Log::error('Failed to send WhatsApp status update: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Order status updated successfully',
@@ -1103,5 +1110,67 @@ class AgentController extends Controller
         }
 
         return $agent;
+    }
+
+    /**
+     * Send WhatsApp status update
+     */
+    private function sendWhatsAppStatusUpdate(Order $order): void
+    {
+        $whatsappBotUrl = env('WHATSAPP_BOT_URL', 'https://foodstuff-whatsapp-bot-6536aa3f6997.herokuapp.com');
+
+        // Load the agent relationship if not already loaded
+        if (!$order->relationLoaded('agent')) {
+            $order->load('agent');
+        }
+
+        $statusMessages = [
+            'pending' => 'Your order is being processed.',
+            'confirmed' => 'Your order has been confirmed!',
+            'paid' => 'Payment received! Your order is being prepared.',
+            'assigned' => 'An agent has been assigned to your order.',
+            'preparing' => 'Your order is being prepared.',
+            'ready_for_delivery' => 'Your order is ready for delivery!',
+            'out_for_delivery' => 'Your order is on its way to you!',
+            'delivered' => 'Your order has been delivered! Enjoy your meal!',
+            'cancelled' => 'Your order has been cancelled.',
+            'failed' => 'There was an issue with your order.',
+            'completed' => 'Your order has been completed successfully!',
+        ];
+
+        $message = $statusMessages[$order->status] ?? 'Your order status has been updated.';
+
+        // Add agent information to the message if status is 'assigned' and agent exists
+        if ($order->status === 'assigned' && $order->agent) {
+            $message = "An agent has been assigned to your order.\n\nAgent: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
+        }
+
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'message' => $message,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+            $response = \Illuminate\Support\Facades\Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                Log::info('WhatsApp status update sent successfully', [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                ]);
+            } else {
+                Log::error('Failed to send WhatsApp status update', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
+        }
     }
 }
