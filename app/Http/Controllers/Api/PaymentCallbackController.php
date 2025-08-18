@@ -31,6 +31,8 @@ class PaymentCallbackController extends Controller
             return response()->json(['error' => 'No signature header present'], 400);
         }
 
+
+
         // Get our paystack secret key from our .env file
         $secret = config('services.paystack.secret_key');
 
