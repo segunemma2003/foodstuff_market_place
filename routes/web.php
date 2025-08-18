@@ -1,12 +1,13 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\PaymentCallbackController;
+use App\Http\Controllers\Api\PaystackWebhookController;
 
 Route::get('/', function () {
     return view('welcome');
 });
 
-// Paystack webhook route - temporary placement
-Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-Route::post('/api/v1/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+// Paystack webhook route - following exact documentation
+Route::post('/webhook/paystack', [PaystackWebhookController::class, 'handle']);
+Route::post('/payments/callback', [PaystackWebhookController::class, 'handle']);
+Route::post('/api/v1/payments/callback', [PaystackWebhookController::class, 'handle']);
