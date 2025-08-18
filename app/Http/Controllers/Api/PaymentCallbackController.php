@@ -165,7 +165,6 @@ class PaymentCallbackController extends Controller
             // Update order status based on Paystack status
             if ($status === 'success') {
                 $order->status = 'paid';
-                $order->payment_status = 'paid';
                 $order->paid_at = now();
                 $order->save();
 
@@ -189,7 +188,6 @@ class PaymentCallbackController extends Controller
 
             } elseif ($status === 'failed') {
                 $order->status = 'failed';
-                $order->payment_status = 'failed';
                 $order->save();
 
                 Log::info('Order marked as failed', [
