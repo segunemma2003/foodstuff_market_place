@@ -119,7 +119,7 @@ class WhatsAppController extends Controller
                 [
                     'session_id' => uniqid('session_'),
                     'section_id' => 'SEC_' . time() . '_' . substr(md5($request->whatsapp_number), 0, 6),
-                    'status' => 'ongoing',
+                    'status' => 'active',
                     'current_step' => 'greeting',
                     'last_activity' => now(),
                 ]
