@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class GeolocationController extends Controller
 {
@@ -25,7 +26,9 @@ class GeolocationController extends Controller
             $cacheKey = "geolocation_search_{$query}_{$limit}";
 
             $results = Cache::remember($cacheKey, 3600, function () use ($query, $limit) {
-                $response = Http::get('https://nominatim.openstreetmap.org/search', [
+                $response = Http::withHeaders([
+                    'User-Agent' => 'FoodStuff-Store-App/1.0 (https://foodstuff.store; contact@foodstuff.store)'
+                ])->get('https://nominatim.openstreetmap.org/search', [
                     'q' => $query,
                     'format' => 'json',
                     'limit' => $limit,
@@ -36,6 +39,12 @@ class GeolocationController extends Controller
                 if ($response->successful()) {
                     return $response->json();
                 }
+
+                Log::warning('OpenStreetMap API request failed', [
+                    'query' => $query,
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
 
                 return [];
             });
@@ -79,7 +88,9 @@ class GeolocationController extends Controller
             $cacheKey = "geolocation_reverse_{$latitude}_{$longitude}";
 
             $result = Cache::remember($cacheKey, 3600, function () use ($latitude, $longitude) {
-                $response = Http::get('https://nominatim.openstreetmap.org/reverse', [
+                $response = Http::withHeaders([
+                    'User-Agent' => 'FoodStuff-Store-App/1.0 (https://foodstuff.store; contact@foodstuff.store)'
+                ])->get('https://nominatim.openstreetmap.org/reverse', [
                     'lat' => $latitude,
                     'lon' => $longitude,
                     'format' => 'json',
