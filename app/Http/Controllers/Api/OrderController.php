@@ -1074,7 +1074,7 @@ class OrderController extends Controller
             'confirmed' => 'Your order has been confirmed!',
             'paid' => 'Payment received! Your order is being prepared.',
             'assigned' => 'An agent has been assigned to your order.',
-            'preparing' => 'Your order is being prepared in the kitchen.',
+            'preparing' => 'Your order is being prepared.',
             'ready_for_delivery' => 'Your order is ready for delivery!',
             'out_for_delivery' => 'Your order is on its way to you!',
             'delivered' => 'Your order has been delivered! Enjoy your meal!',
