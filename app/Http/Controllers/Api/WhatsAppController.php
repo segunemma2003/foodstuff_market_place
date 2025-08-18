@@ -568,6 +568,7 @@ class WhatsAppController extends Controller
                     $orderItems[] = [
                         'order_id' => $order->id,
                         'product_id' => $marketProduct->product_id,
+                        'market_product_id' => $item['market_product_id'],
                         'product_name' => $item['product_name'] ?? $marketProduct->product_name ?? 'Product',
                         'unit_price' => $item['unit_price'],
                         'quantity' => $item['quantity'],
