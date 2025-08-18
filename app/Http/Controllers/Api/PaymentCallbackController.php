@@ -114,14 +114,12 @@ class PaymentCallbackController extends Controller
                     // Continue with payment processing even if agent assignment fails
                 }
 
-                // Send success notification to WhatsApp bot (temporarily disabled due to bot URL issue)
-                // $this->sendWhatsAppNotification(
-                //     $session->whatsapp_number,
-                //     $order->order_number,
-                //     'paid',
-                //     'Payment successful',
-                //     $session->section_id
-                // );
+                // Send payment success notification with agent details
+                try {
+                    $this->sendPaymentSuccessNotification($order, $session);
+                } catch (\Exception $e) {
+                    Log::error('Failed to send payment success notification: ' . $e->getMessage());
+                }
 
                 Log::info('Payment successful', [
                     'section_id' => $sectionId,
@@ -150,14 +148,12 @@ class PaymentCallbackController extends Controller
                     'last_activity' => now(),
                 ]);
 
-                // Send failure notification to WhatsApp bot (temporarily disabled)
-                // $this->sendWhatsAppNotification(
-                //     $session->whatsapp_number,
-                //     $order->order_number,
-                //     'payment_failed',
-                //     'Payment failed',
-                //     $session->section_id
-                // );
+                // Send payment failure notification
+                try {
+                    $this->sendPaymentFailureNotification($order, $session);
+                } catch (\Exception $e) {
+                    Log::error('Failed to send payment failure notification: ' . $e->getMessage());
+                }
 
                 Log::warning('Payment failed', [
                     'section_id' => $sectionId,
@@ -428,6 +424,90 @@ class PaymentCallbackController extends Controller
             }
         } catch (\Exception $e) {
             Log::error('Error sending WhatsApp status update: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send payment success notification with agent details
+     */
+    private function sendPaymentSuccessNotification(Order $order, WhatsappSession $session): void
+    {
+        $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+
+        // Load the agent relationship if not already loaded
+        if (!$order->relationLoaded('agent')) {
+            $order->load('agent');
+        }
+
+        $message = "Payment confirmed! Your order has been paid successfully.\n\nOrder: {$order->order_number}\nAmount: ₦" . number_format($order->total_amount / 100, 2);
+
+        // Add agent information if agent is assigned
+        if ($order->agent) {
+            $message .= "\n\nAgent assigned: {$order->agent->full_name}\nPhone: {$order->agent->phone}";
+        }
+
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => 'paid',
+            'message' => $message,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                Log::info('Payment success notification sent successfully', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]);
+            } else {
+                Log::error('Failed to send payment success notification', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending payment success notification: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send payment failure notification
+     */
+    private function sendPaymentFailureNotification(Order $order, WhatsappSession $session): void
+    {
+        $whatsappBotUrl = 'https://foodstuff-whatsapp-bot-1aeb07cc3b64.herokuapp.com';
+
+        $message = "Payment failed! Your order payment was not successful.\n\nOrder: {$order->order_number}\nAmount: ₦" . number_format($order->total_amount / 100, 2) . "\n\nPlease try again or contact support.";
+
+        $data = [
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => 'payment_failed',
+            'message' => $message,
+            'whatsapp_number' => $order->whatsapp_number,
+        ];
+
+        // Send to WhatsApp bot
+        try {
+            $response = Http::post($whatsappBotUrl . '/order-status-update', $data);
+
+            if ($response->successful()) {
+                Log::info('Payment failure notification sent successfully', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]);
+            } else {
+                Log::error('Failed to send payment failure notification', [
+                    'order_id' => $order->id,
+                    'response' => $response->body(),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error sending payment failure notification: ' . $e->getMessage());
         }
     }
 }
