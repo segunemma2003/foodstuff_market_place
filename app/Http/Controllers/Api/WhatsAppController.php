@@ -429,7 +429,7 @@ class WhatsAppController extends Controller
                 ->with([
                     'product:id,category_id,name,description,image,unit',
                     'product.category:id,name',
-                    'prices:id,market_product_id,measurement_scale,price,unit,is_available'
+                    'productPrices:id,market_product_id,measurement_scale,price,unit,is_available'
                 ])
                 ->where('market_id', $request->market_id)
                 ->where('is_available', true);
@@ -455,7 +455,7 @@ class WhatsAppController extends Controller
                     'description' => $product ? $product->description : null,
                     'image' => $product ? $product->image : null,
                     'category' => $category ? $category->name : null,
-                    'prices' => $marketProduct->prices ? $marketProduct->prices->map(function($price) {
+                    'prices' => $marketProduct->productPrices ? $marketProduct->productPrices->map(function($price) {
                         return [
                             'id' => $price->id,
                             'measurement_scale' => $price->measurement_scale,
