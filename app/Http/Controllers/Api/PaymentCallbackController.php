@@ -137,7 +137,7 @@ class PaymentCallbackController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Order not found for reference: ' . $reference,
-                ], 404);
+                ], 402);
             }
 
             // Find the session by whatsapp number and section_id (if available)
