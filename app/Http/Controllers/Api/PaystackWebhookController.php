@@ -24,7 +24,7 @@ class PaystackWebhookController extends Controller
     /**
      * Handle Paystack webhook exactly as per documentation
      */
-    public function handle(Request $request): JsonResponse
+    public function handle(Request $request)
     {
         try {
             // Log incoming request for debugging
