@@ -19,12 +19,30 @@ class PaymentCallbackController extends Controller
 
     public function handlePaymentCallback(Request $request): JsonResponse
     {
+        // Handle OPTIONS requests for CORS preflight
+        if ($request->isMethod('OPTIONS')) {
+            Log::info('CORS preflight request received for Paystack webhook');
+            return response()->json(['success' => true, 'message' => 'CORS preflight OK'], 200);
+        }
+
+        // Handle GET requests (some webhook providers might send GET for testing)
+        if ($request->isMethod('GET')) {
+            Log::info('GET request received for Paystack webhook', [
+                'query' => $request->query(),
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+            return response()->json(['success' => true, 'message' => 'Webhook endpoint is working'], 200);
+        }
+
         // Log the incoming webhook request
         Log::info('Paystack webhook received', [
+            'method' => $request->method(),
             'headers' => $request->headers->all(),
             'body' => $request->all(),
             'ip' => $request->ip(),
             'user_agent' => $request->userAgent(),
+            'content_type' => $request->header('Content-Type'),
         ]);
 
         try {
@@ -33,6 +51,7 @@ class PaymentCallbackController extends Controller
                 Log::warning('Paystack signature verification failed', [
                     'ip' => $request->ip(),
                     'user_agent' => $request->userAgent(),
+                    'method' => $request->method(),
                 ]);
                 return response()->json([
                     'success' => false,

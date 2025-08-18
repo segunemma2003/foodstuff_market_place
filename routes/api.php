@@ -23,8 +23,8 @@ use App\Http\Controllers\Api\PaymentCallbackController;
 Route::prefix('v1')->group(function () {
 
     // Payment webhook routes - MUST be at the top and without middleware
-    Route::post('/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
-    Route::post('/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+    Route::match(['GET', 'POST', 'PUT', 'OPTIONS'], '/payment-callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
+    Route::match(['GET', 'POST', 'PUT', 'OPTIONS'], '/payments/callback', [PaymentCallbackController::class, 'handlePaymentCallback']);
 
     // WhatsApp Bot API
     Route::post('/whatsapp/webhook', [WhatsAppController::class, 'webhook']);
